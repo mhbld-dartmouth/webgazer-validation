@@ -444,3 +444,32 @@ def test_export_handles_null_validation_checkpoints():
             assert f'sessions/{sid}/raw/batches/000001.json.gz' in names
             assert f'sessions/{sid}/RAW_EXPORT_WARNING.txt' not in names
             assert sid in z.read('study_summary.csv').decode('utf-8-sig')
+
+
+def test_deployment_cache_headers_and_version_consistency():
+    """Both interfaces and their JS use the same revision and cannot be cached."""
+    import re
+    revision=main.deployment_revision()
+    version=client.get('/api/client-version')
+    assert version.status_code==200
+    assert version.json()=={'revision':revision}
+    urls=['/','/index.html','/admin','/admin/login','/quality.js','/upload.js',
+          '/webgazer-2.0.1.js','/models/README.md','/api/client-version','/admin/api/sessions']
+    for path in urls:
+        response=client.get(path)
+        assert 'no-store' in response.headers['cache-control'],path
+        assert response.headers['pragma']=='no-cache',path
+        assert response.headers['expires']=='0',path
+    for path in ('/','/admin'):
+        html=client.get(path).text
+        assert f'content="{revision}"' in html
+        assert '__DEPLOY_REVISION__' not in html
+        assert '/api/client-version' in html
+        assert 'Reload latest version' in html if path=='/' else 'Refresh portal' in html
+    participant=client.get('/').text
+    for filename in ('upload.js','quality.js','gaze_kinematics.js','deploy-config.js','webgazer-2.0.1.js'):
+        assert filename+'?v='+revision in participant
+    # A wrong active session must never become automatically refreshable.
+    assert 'window.__studyVersionSessionStarted?.();' in participant
+    assert 'if(started)return true;' in participant
+    assert 'The study has been updated. Use Reload latest version before starting.' in participant

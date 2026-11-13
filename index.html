@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="study-deployment-revision" content="__DEPLOY_REVISION__">
 <title>Gaze Check — WebGazer calibration &amp; validation</title>
 <style>
   :root{
@@ -614,14 +615,52 @@
 window.__wgReady=(function(){var r;var p=new Promise(function(x){r=x});window.__wgResolve=r;return p})();
 function loadScript(src,onerr){var s=document.createElement('script');s.src=src;
   s.onload=function(){window.__wgResolve(!!window.webgazer)};s.onerror=onerr;document.head.appendChild(s)}
-loadScript('./webgazer-2.0.1.js',function(){console.warn('[GazeCheck] local webgazer-2.0.1.js not found, trying the CDN');
+loadScript('./webgazer-2.0.1.js?v=__DEPLOY_REVISION__',function(){console.warn('[GazeCheck] local webgazer-2.0.1.js not found, trying the CDN');
   loadScript('https://cdn.jsdelivr.net/npm/webgazer@2.0.1/dist/webgazer.js',function(){console.error('[GazeCheck] WebGazer could not be loaded');window.__wgResolve(false)})});
 </script>
 
-<script src="./quality.js"></script>
-<script src="./gaze_kinematics.js"></script>
-<script src="./deploy-config.js"></script>
-<script src="./upload.js?v=20261028-parallel-progress-33"></script>
+<script src="./quality.js?v=__DEPLOY_REVISION__"></script>
+<script src="./gaze_kinematics.js?v=__DEPLOY_REVISION__"></script>
+<script src="./deploy-config.js?v=__DEPLOY_REVISION__"></script>
+<script src="./upload.js?v=__DEPLOY_REVISION__"></script>
+<script>
+/* Show new deployments on the setup screen, never reload an active participant. */
+(function(){
+  'use strict';
+  const current=document.querySelector('meta[name="study-deployment-revision"]')?.content;
+  let stale=false, started=false, checking=null;
+  function notice(){
+    if(!stale || started || document.body.classList.contains('task'))return;
+    if(document.getElementById('studyUpdateNotice'))return;
+    const wrap=document.createElement('div');wrap.id='studyUpdateNotice';wrap.setAttribute('role','alert');
+    wrap.style.cssText='position:fixed;z-index:500;top:12px;left:50%;transform:translateX(-50%);max-width:min(94vw,630px);background:#fff6dc;color:#322000;border:2px solid #a87822;border-radius:12px;padding:14px 18px;box-shadow:0 5px 24px #0003;font:600 15px/1.45 system-ui,sans-serif;text-align:center';
+    const message=document.createElement('span');message.textContent='The study was updated. Reload the latest version before you begin.';
+    const btn=document.createElement('button');btn.type='button';btn.textContent='Reload latest version';
+    btn.style.cssText='margin-left:12px;padding:8px 12px;background:#173c63;color:white;border:0;border-radius:7px;cursor:pointer;font:inherit';
+    btn.addEventListener('click',()=>location.reload());wrap.append(message,btn);document.body.append(wrap);
+  }
+  async function check(){
+    if(started)return true;
+    if(checking)return checking;
+    checking=(async()=>{
+      try{
+        const response=await fetch('/api/client-version',{cache:'no-store'});
+        if(!response.ok)return !stale;
+        const info=await response.json();
+        if(current && !current.startsWith('__') && info.revision && info.revision!==current){stale=true;notice();}
+      }catch(_){/* A temporary network failure must not erase a study. */}
+      return !stale;
+    })();
+    try{return await checking;}finally{checking=null;}
+  }
+  window.__studyVersionGuard=check;
+  window.__studyVersionSessionStarted=()=>{started=true;document.getElementById('studyUpdateNotice')?.remove();};
+  window.addEventListener('pageshow',()=>{void check();});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)void check();});
+  // No polling once a study starts, protecting gaze timing and unfinished uploads.
+  setInterval(()=>{if(!document.hidden && !started)void check();},90000);
+})();
+</script>
 <script>
 (function(){
 "use strict";
@@ -797,7 +836,12 @@ $('#toDemo').onclick=async()=>{
   experience=radioVal('eyeTrackerExperience');
   if(!experience){$('#inviteErr').textContent='Please select Yes or No for previous eye tracker experience.';$('#inviteErr').classList.add('on');return;}
   try {
-    const current=await StudyUpload.start(); // New anonymous session on each fresh visit. No browser-persistent study storage.
+    if(window.__studyVersionGuard && !(await window.__studyVersionGuard())){
+      $('#inviteErr').textContent='The study has been updated. Use Reload latest version before starting.';
+      $('#inviteErr').classList.add('on');return;
+    }
+    const current=await StudyUpload.start(); // New anonymous session on each fresh visit.
+    window.__studyVersionSessionStarted?.(); // No browser-persistent study storage.
     sessionNumber=current.session_number; pid=sessionNumber; studyVisit=current.visit||'pilot';
     consentRecord={version:CONSENT_VERSION,agreed:true,session_number:sessionNumber,
       acknowledged_at:new Date().toISOString(),notice:'participant_webcam_and_gaze_data_notice'};

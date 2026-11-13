@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>WebGazer researcher portal</title>
+<meta name="study-deployment-revision" content="__DEPLOY_REVISION__"><title>WebGazer researcher portal</title>
 <style>
 :root{font-family:system-ui,-apple-system,sans-serif;color:#162637;background:#f6f7fa}*{box-sizing:border-box}body{margin:0}header{background:#102e4f;color:white;padding:21px max(20px,calc((100% - 1200px)/2));display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}h1{font-size:22px;margin:0}header button{background:transparent;color:white;border:1px solid #abc2d8;padding:9px 15px;border-radius:8px;cursor:pointer}main{max-width:1200px;margin:28px auto;padding:0 20px}.meta{color:#536373;font-size:14px}section{background:white;border:1px solid #dbe0e9;border-radius:12px;padding:22px;margin:16px 0}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}.stat{background:#eff4f9;border-radius:10px;padding:18px}.stat b{display:block;font-size:29px;margin-top:5px}.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:780px}th,td{padding:13px 10px;border-bottom:1px solid #e8ebf0;text-align:left;font-size:14px}th{background:#f7f8fb}.pill{border-radius:100px;padding:4px 9px;background:#e7eff6;white-space:nowrap}.pill.submitted{background:#dceee5;color:#175d36}.pill.incomplete{background:#fff0d1;color:#7c4a03}#error,#loginError{color:#a52827}button{font:inherit;cursor:pointer}button:disabled{opacity:.6}.danger{background:#8d2525;color:white;border:0;border-radius:7px;padding:8px 12px;font-weight:650}.danger:focus-visible{outline:2px solid #8d2525;outline-offset:2px}.danger:hover{background:#6c1c1c}.manage-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.delete-dialog{max-width:560px;width:calc(100% - 32px);border:1px solid #bbd0df;border-radius:12px;box-shadow:0 12px 60px #1117;padding:25px}.delete-dialog::backdrop{background:#142238aa}.delete-dialog label{display:block;font-weight:600;margin:12px 0 5px}.delete-dialog input{width:100%;padding:10px;font:inherit;border:1px solid #9ca8b3;border-radius:6px}.delete-dialog menu{display:flex;gap:10px;justify-content:flex-end;padding:0;margin:20px 0 0}.delete-dialog .meta{overflow-wrap:anywhere}.primary{background:#173c63;color:white;border:0;border-radius:8px;padding:12px 18px;font-weight:650}.export{background:#176443;color:white;border:0;border-radius:10px;padding:16px 24px;font-weight:750;font-size:17px}.export:hover{background:#124d34}.link{border:0;background:transparent;color:#085b9b;font-weight:650;text-decoration:underline;padding:3px}.login{max-width:450px;margin:10vh auto;padding:32px;background:white;border:1px solid #dbe0e9;border-radius:15px;box-shadow:0 8px 35px #12233c11}.login label{font-weight:650;display:block;margin:24px 0 8px}.login input{width:100%;font:inherit;padding:14px;border-radius:7px;border:1px solid #adb7c4}.login button{width:100%;margin-top:18px}#loginView[hidden],#dashboardView[hidden]{display:none!important}
 /* Show/hide password control. This does not change login authentication. */
@@ -129,4 +129,36 @@ $('exportAll').onclick=()=>download('/admin/api/export-all','webgazer_completed_
 $('refresh').onclick=refresh;$('logout').onclick=signOut;
 window.addEventListener('pagehide',signOut);
 window.addEventListener('pageshow',event=>{if(event.persisted)signOut();});
-</script></body></html>
+</script><script>
+/* Updates are announced, not forced during downloads or sensitive researcher actions. */
+(function(){
+  'use strict';
+  const rev=document.querySelector('meta[name="study-deployment-revision"]')?.content;
+  let stale=false, pending=null;
+  function notice(){
+    if(!stale || document.getElementById('adminUpdateNotice'))return;
+    const box=document.createElement('aside');box.id='adminUpdateNotice';box.setAttribute('role','status');
+    box.style.cssText='position:sticky;top:0;z-index:1000;background:#fff1cf;color:#302410;border-bottom:2px solid #af812a;padding:12px 20px;text-align:center;font:600 15px/1.5 system-ui,sans-serif';
+    const msg=document.createElement('span');msg.textContent='A newer researcher portal is available. Refresh to load the latest version. You will need to sign in again.';
+    const button=document.createElement('button');button.type='button';button.textContent='Refresh portal';
+    button.style.cssText='margin-left:14px;border:0;border-radius:7px;padding:8px 13px;background:#173c63;color:white;font:inherit;cursor:pointer';
+    button.onclick=()=>location.reload();box.append(msg,button);document.body.prepend(box);
+  }
+  async function check(){
+    if(pending)return pending;
+    pending=(async()=>{
+      try{
+        const response=await fetch('/api/client-version',{cache:'no-store'});
+        if(!response.ok)return;
+        const info=await response.json();
+        if(rev && !rev.startsWith('__') && info.revision && rev!==info.revision){stale=true;notice();}
+      }catch(_){/* Do not interrupt an administrator over a network error. */}
+    })();
+    try{await pending;}finally{pending=null;}
+  }
+  window.addEventListener('pageshow',()=>{void check();});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)void check();});
+  setInterval(()=>{if(!document.hidden)void check();},90000);
+})();
+</script>
+</body></html>

@@ -21,6 +21,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from admin_portal import register, check_admin_config
 from storage_codec import read_object_json
+from cache_version import deployment_revision, no_store_headers, serve_html
 from pydantic import BaseModel, Field
 from typing import Literal
 
@@ -163,15 +164,15 @@ async def security_headers(request: Request, call_next):
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['Referrer-Policy'] = 'no-referrer'
     response.headers['Permissions-Policy'] = 'camera=(self), microphone=()'
-    if request.url.path.startswith(('/admin', '/api/')):
-        response.headers['Cache-Control'] = 'no-store'
+    if request.url.path in ('/', '/index.html') or request.url.path.startswith(('/admin', '/api/', '/models/')) or request.url.path.lstrip('/') in STATIC_ASSETS:
+        response.headers.update(no_store_headers())
         response.headers['Content-Security-Policy'] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'"
     return response
 
 @app.get('/', include_in_schema=False)
 @app.get('/index.html', include_in_schema=False)
 def participant_page():
-    return FileResponse(FRONTEND/'index.html', media_type='text/html', headers={'Cache-Control':'no-store'})
+    return serve_html(FRONTEND/'index.html')
 
 @app.get('/models/{model_path:path}', include_in_schema=False)
 def face_model(model_path: str):
@@ -179,10 +180,10 @@ def face_model(model_path: str):
     target=(base/model_path).resolve()
     if not target.is_relative_to(base) or not target.is_file() or target.name.startswith('.'):
         raise HTTPException(404, 'Model file not found')
-    return FileResponse(target)
+    return FileResponse(target, headers=no_store_headers())
 
 def frontend_asset(filename: str):
-    return FileResponse(FRONTEND/filename, headers={'Cache-Control':'no-store'})
+    return FileResponse(FRONTEND/filename, headers=no_store_headers())
 
 # Exact routes only: never accidentally expose backend source, credentials, exports, or .env.
 for asset_name in sorted(STATIC_ASSETS):
@@ -214,6 +215,11 @@ def identify(authorization: str | None) -> tuple[str, dict]:
     if object_exists(f"deleted_sessions/{data['sid']}.json"):
         raise HTTPException(410, 'This session has been deleted')
     return data['sid'], data
+
+
+@app.get('/api/client-version', include_in_schema=False)
+def client_version():
+    return Response(content=json.dumps({'revision': deployment_revision()}), media_type='application/json', headers=no_store_headers())
 
 
 @app.get('/health')

@@ -21,6 +21,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from export_reports import objects, read_json, build_export
 from retention import cleanup_stale
+from cache_version import serve_html
 
 HERE = Path(__file__).resolve().parent
 SID_RE = re.compile(r'^[a-f0-9]{32}$')
@@ -103,7 +104,7 @@ def register(app, get_s3, get_bucket):
     @app.get('/admin/login', include_in_schema=False)
     def dashboard_shell():
         # HTML shell is public; it contains NO private data and cannot call APIs until login.
-        return FileResponse(HERE/'admin_dashboard.html', media_type='text/html', headers={'Cache-Control':'no-store'})
+        return serve_html(HERE/'admin_dashboard.html')
 
     # Check the password hash. The login response is held in page memory, not a cookie.
     @app.post('/admin/api/login', include_in_schema=False)
