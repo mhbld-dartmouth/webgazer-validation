@@ -84,4 +84,4 @@ The source code in this project is supplied under GPLv3 (`LICENSE`). The include
 
 The study design was informed by Brand et al. (2021) and WebGazer by Papoutsaki et al. (2016). The browser procedure differs from the Gazepoint GP3 hardware study and should not be treated as equivalent.
 
-## Repository maintained by MHBLD Dartmouth.
+*Repository maintained by MHBLD Dartmouth*
