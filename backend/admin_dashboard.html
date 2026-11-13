@@ -20,10 +20,18 @@
 <main><p class="meta">Protected participant data. Keep exported files on approved research storage. Dashboard updates every 20 seconds after submissions arrive.</p>
 <div class="stats"><div class="stat">Completed submissions<b id="submitted">—</b><small>Not necessarily unique people</small></div><div class="stat">Receipts needing review<b id="needsReview">—</b></div></div>
 <section><h2 style="margin-top:0">Export completed study data</h2><p class="meta">Exports include confirmed complete sessions only. Unfinished uploads are not downloadable. The ZIP includes raw JSON checkpoints, CSV tables, sampling rates and plots. Check export_errors.csv for any receipts that need manual review.</p><button class="export" id="exportAll">Download completed sessions (ZIP)</button><p id="exportStatus" role="status" class="meta"></p></section>
-<section><h2 style="margin-top:0">Expired unfinished uploads</h2><p class="meta">Only uploads with no completion receipt and no activity for over 96 hours are eligible for cleanup. A receipt is never deleted, even if it is unreadable. Cleanup is irreversible for those expired unfinished uploads.</p><button class="primary" id="cleanup">Review expired uploads</button><p id="cleanupStatus" class="meta" role="status"></p></section>
-<section><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center"><div><h2 style="margin:0 0 5px;font-size:20px">Participant sessions</h2><div class="meta">Open study URL: <a href="/" target="_blank" rel="noreferrer">participant experiment</a>.
+<section><h2 style="margin-top:0">Clear old incomplete study attempts</h2>
+<p class="meta">If someone closes the study before finishing, some of their gaze data may already have been saved. These attempts are <strong>not counted as completed studies</strong> and are not in your downloaded study results.</p>
+<p class="meta">You can review and remove attempts with no completion confirmation and no activity for at least <strong>96 hours (4 days)</strong>. This is optional and is <strong>not automatic</strong>. Completed studies and records needing review are protected from this cleanup.</p>
+<button class="primary" id="cleanup">Check for old incomplete attempts</button><p id="cleanupStatus" class="meta" role="status"></p></section>
+<section><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center"><div><h2 style="margin:0 0 5px;font-size:20px">Completed study sessions</h2><div class="meta">Open study URL: <a href="/" target="_blank" rel="noreferrer">participant experiment</a>.
 No invitation required.</div></div><button class="primary" id="refresh">Refresh now</button></div><p class="meta" id="updated">Loading…</p><p id="error" role="status"></p><div class="scroll"><table><thead><tr><th>Session number</th><th>Session</th><th>Status</th><th>Batches</th><th>Accuracy</th><th>Precision</th><th>Validation passed</th><th>Submitted at (UTC)</th><th>Last activity (UTC)</th><th>Export</th><th>Delete</th></tr></thead><tbody id="rows"></tbody></table></div></section>
-<section><h2 style="margin-top:0">Manage stored sessions</h2><p class="meta">This optional management view shows both complete and unfinished sessions, including unreadable receipts. Unfinished uploads are not included in researcher exports. Deletion permanently removes all study objects for the chosen session, so review or export records before deleting. A fresh researcher password and exact session ID are required.</p><button class="primary" id="showStorage">Show all stored sessions</button><p id="storageStatus" class="meta" role="status"></p><div class="scroll" id="storageWrap" hidden><table><thead><tr><th>Session ID</th><th>Session number</th><th>Status</th><th>Objects</th><th>Last activity (UTC)</th><th>Delete</th></tr></thead><tbody id="storageRows"></tbody></table></div></section>
+<section><h2 style="margin-top:0">Find or delete a specific session</h2>
+<p class="meta">Use this section only when you need to find or remove one study attempt. It lists <strong>all saved sessions</strong>, including completed studies, unfinished attempts, and records requiring review. "Stored files" counts the pieces of data saved for a session; it is not the number of participants.</p>
+<p class="meta">Deleting an individual session removes its stored study data. To prevent mistakes, you must enter the full internal session ID and your researcher password again. <strong>Download and check any data you need before deleting.</strong></p>
+<button class="primary" id="showStorage">View all saved sessions</button><p id="storageStatus" class="meta" role="status"></p>
+<div class="scroll" id="storageWrap" hidden><table><thead><tr><th>Internal session ID</th><th>Session number</th><th>Record status</th><th>Stored files</th><th>Last activity (UTC)</th><th>Delete</th></tr></thead><tbody id="storageRows"></tbody></table>
+<p class="meta"><strong>Record status key:</strong> Completed = successfully submitted; Not completed = participant did not finish; Needs review = submission record could not be read; Partial completion record = final record is marked incomplete.</p></div></section>
 <dialog id="deleteDialog" class="delete-dialog" aria-labelledby="deleteTitle"><h2 id="deleteTitle">Delete entire session?</h2><p>This removes the live stored study records, batches, and submission receipt for the selected session. It cannot be undone from this portal. Cloud storage retention policies may preserve recoverable copies. Consider exporting the data first.</p><p class="meta">Session ID: <strong id="deleteTarget"></strong></p><form id="deleteForm"><label for="deleteConfirm">Type the complete session ID</label><input id="deleteConfirm" required autocomplete="off" spellcheck="false"><label for="deletePassword">Enter researcher password again</label><input id="deletePassword" type="password" required autocomplete="off"><p id="deleteError" role="alert" style="color:#a52827"></p><menu><button type="button" id="deleteCancel">Cancel</button><button type="submit" class="danger" id="deleteSubmit">Permanently delete</button></menu></form></dialog>
 <p class="meta">Access expires after 30 minutes. Closing or refreshing this page discards your browser-held credentials. The completed count measures submitted sessions, not distinct humans, because no login or identity check is required of participants.</p>
 </main></div>
@@ -36,6 +44,7 @@ const $=id=>document.getElementById(id);
 function authorization(){return {'Authorization':'Bearer '+researcherToken};}
 async function getPrivate(path){const r=await fetch(path,{headers:authorization(),cache:'no-store'});if(r.status===401){signOut();throw new Error('Session expired. Sign in again.');}return r;}
 function cell(row,value){const td=document.createElement('td');td.textContent=String(value??'—');row.append(td);return td;}
+function statusText(value){return ({submitted:'Completed',unfinished:'Not completed',receipt_needs_review:'Needs review',partial_receipt:'Partial completion record'})[value]||value;}
 function resetPasswordVisibility(){
   $('password').type='password';
   $('togglePassword').setAttribute('aria-pressed','false');
@@ -54,7 +63,7 @@ $('togglePassword').addEventListener('click',()=>{
   $('eyeClosed').hidden=!visible;
   $('password').focus({preventScroll:true});
 });
-function signOut(){if($('deleteDialog').open)closeDeleteDialog();$('storageWrap').hidden=true;$('showStorage').textContent='Show all stored sessions';researcherToken='';$('dashboardView').hidden=true;$('loginView').hidden=false;$('password').value='';resetPasswordVisibility();if(refreshTimer)clearInterval(refreshTimer);refreshTimer=null;}
+function signOut(){if($('deleteDialog').open)closeDeleteDialog();$('storageWrap').hidden=true;$('showStorage').textContent='View all saved sessions';researcherToken='';$('dashboardView').hidden=true;$('loginView').hidden=false;$('password').value='';resetPasswordVisibility();if(refreshTimer)clearInterval(refreshTimer);refreshTimer=null;}
 $('loginForm').addEventListener('submit',async event=>{
  event.preventDefault();const button=$('loginBtn');button.disabled=true;$('loginError').textContent='';
  try{const password=$('password').value;const result=await fetch('/admin/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password}),cache:'no-store'});$('password').value='';resetPasswordVisibility();if(!result.ok)throw new Error(result.status===429?'Too many attempts. Try again later.':'Incorrect password');const data=await result.json();researcherToken=data.token;$('loginView').hidden=true;$('dashboardView').hidden=false;await refresh();refreshTimer=setInterval(()=>{if(document.visibilityState==='visible')refresh();},20000);}
@@ -65,7 +74,7 @@ async function refresh(){if(!researcherToken||busy)return;busy=true;$('refresh')
  try{const response=await getPrivate('/admin/api/sessions');if(!response.ok)throw new Error('Unable to load dashboard ('+response.status+')');const data=await response.json();const records=data.sessions||[], counts=data.counts||{};
  $('submitted').textContent=counts.submitted??0;$('needsReview').textContent=counts.needs_review??0;
  $('updated').textContent='Updated '+new Date().toLocaleTimeString()+' · '+data.shown+' confirmed submissions shown (latest 250)';$('error').textContent=(data.needs_review?.length?'Review required: '+data.needs_review.map(x=>x.session_id.slice(0,12)+'…').join(', ')+'. These are excluded from exports until the completion receipts are checked.':'');$('rows').replaceChildren();
- for(const rec of records){const tr=document.createElement('tr');cell(tr,rec.session_number||'—');cell(tr,rec.session_id.slice(0,12)+'…');const status=cell(tr,rec.status);status.className='pill '+rec.status;cell(tr,rec.batches);const metric=(px,deg)=>typeof px==='number'?px.toFixed(0)+' px'+(typeof deg==='number'?' / '+deg.toFixed(2)+'°':''):'—';cell(tr,metric(rec.metrics?.accPx,rec.metrics?.accDeg));cell(tr,metric(rec.metrics?.precPx,rec.metrics?.precDeg));cell(tr,rec.validation_passed===true?'Yes':rec.validation_passed===false?'No':'—');cell(tr,rec.submitted_at_utc||'—');cell(tr,rec.last_activity||'—');const td=document.createElement('td'),button=document.createElement('button');button.className='link';button.textContent='CSV + plots ZIP';button.onclick=()=>download('/admin/api/sessions/'+encodeURIComponent(rec.session_id)+'/download','webgazer_session_'+rec.session_id+'.zip');td.append(button);tr.append(td);const delTd=document.createElement('td'),delBtn=document.createElement('button');delBtn.type='button';delBtn.className='danger';delBtn.textContent='Delete';delBtn.onclick=()=>showDeleteDialog(rec.session_id);delTd.append(delBtn);tr.append(delTd);$('rows').append(tr);}
+ for(const rec of records){const tr=document.createElement('tr');cell(tr,rec.session_number||'—');cell(tr,rec.session_id.slice(0,12)+'…');const status=cell(tr,statusText(rec.status));status.className='pill '+rec.status;cell(tr,rec.batches);const metric=(px,deg)=>typeof px==='number'?px.toFixed(0)+' px'+(typeof deg==='number'?' / '+deg.toFixed(2)+'°':''):'—';cell(tr,metric(rec.metrics?.accPx,rec.metrics?.accDeg));cell(tr,metric(rec.metrics?.precPx,rec.metrics?.precDeg));cell(tr,rec.validation_passed===true?'Yes':rec.validation_passed===false?'No':'—');cell(tr,rec.submitted_at_utc||'—');cell(tr,rec.last_activity||'—');const td=document.createElement('td'),button=document.createElement('button');button.className='link';button.textContent='CSV + plots ZIP';button.onclick=()=>download('/admin/api/sessions/'+encodeURIComponent(rec.session_id)+'/download','webgazer_session_'+rec.session_id+'.zip');td.append(button);tr.append(td);const delTd=document.createElement('td'),delBtn=document.createElement('button');delBtn.type='button';delBtn.className='danger';delBtn.textContent='Delete';delBtn.onclick=()=>showDeleteDialog(rec.session_id);delTd.append(delBtn);tr.append(delTd);$('rows').append(tr);}
  if(!records.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=11;td.textContent='No confirmed submissions yet.';tr.append(td);$('rows').append(tr);}}
  catch(e){$('error').textContent=e.message;}finally{busy=false;$('refresh').disabled=false;}
 }
@@ -74,16 +83,16 @@ async function download(path,filename){const status=$('exportStatus');status.tex
  try{const response=await getPrivate(path);if(!response.ok)throw new Error('Export failed ('+response.status+')');const blob=await response.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);status.textContent='ZIP export created successfully.';}
  catch(e){status.textContent=e.message;}finally{$('exportAll').disabled=false;}}
 $('cleanup').onclick=async()=>{
- const out=$('cleanupStatus'),btn=$('cleanup');btn.disabled=true;out.textContent='Checking expired unfinished uploads…';
+ const out=$('cleanupStatus'),btn=$('cleanup');btn.disabled=true;out.textContent='Checking for old incomplete attempts…';
  try{const preview=await fetch('/admin/api/cleanup-stale?dry_run=true',{method:'POST',headers:authorization(),cache:'no-store'});
  if(!preview.ok)throw new Error('Cleanup inspection failed ('+preview.status+')');
  const data=await preview.json();
- if(!data.eligible_sessions){out.textContent='No expired unfinished uploads need cleanup.';return;}
- const message='Delete '+data.selected_objects+' objects from '+data.selected_sessions+' expired unfinished sessions? Confirmed submissions and unreadable receipts will not be touched.';
+ if(!data.eligible_sessions){out.textContent='No old incomplete attempts need removal.';return;}
+ const message='Permanently remove '+data.selected_objects+' stored files from '+data.selected_sessions+' old incomplete attempts? Completed sessions and records needing review will NOT be removed.';
  if(!confirm(message)){out.textContent='No data deleted.';return;}
  const r=await fetch('/admin/api/cleanup-stale?dry_run=false',{method:'POST',headers:authorization(),cache:'no-store'});
  if(!r.ok)throw new Error('Cleanup failed ('+r.status+')');
- const result=await r.json();out.textContent='Deleted '+result.deleted_objects+' objects from '+result.deleted_sessions+' expired unfinished sessions.'+(result.failed_sessions.length?' Some deletions failed; consult server logs.':'');
+ const result=await r.json();out.textContent='Removed '+result.deleted_objects+' saved files from '+result.deleted_sessions+' old incomplete attempts.'+(result.failed_sessions.length?' Some deletions failed; consult server logs.':'');
  await refresh();}
  catch(e){out.textContent=e.message;}finally{btn.disabled=false;}
 };
@@ -109,13 +118,13 @@ $('deleteForm').addEventListener('submit',async event=>{
  }catch(e){$('deleteError').textContent=e.message;}finally{btn.disabled=false;}
 });
 async function refreshStorage(){
- const out=$('storageStatus');out.textContent='Loading stored session inventory…';
+ const out=$('storageStatus');out.textContent='Loading all saved study sessions…';
  try{const response=await getPrivate('/admin/api/stored-sessions');if(!response.ok)throw new Error('Storage list unavailable ('+response.status+')');const data=await response.json();$('storageRows').replaceChildren();
- for(const rec of data.sessions){const tr=document.createElement('tr');cell(tr,rec.session_id);cell(tr,rec.session_number||'—');cell(tr,rec.status);cell(tr,rec.objects);cell(tr,rec.last_activity_utc||'—');const td=document.createElement('td'),button=document.createElement('button');button.type='button';button.className='danger';button.textContent='Delete';button.onclick=()=>showDeleteDialog(rec.session_id);td.append(button);tr.append(td);$('storageRows').append(tr);}
- out.textContent='Showing '+data.shown+' of '+data.total+' stored sessions. No unfinished uploads appear in the completed table.';
+ for(const rec of data.sessions){const tr=document.createElement('tr');cell(tr,rec.session_id);cell(tr,rec.session_number||'—');cell(tr,statusText(rec.status));cell(tr,rec.objects);cell(tr,rec.last_activity_utc||'—');const td=document.createElement('td'),button=document.createElement('button');button.type='button';button.className='danger';button.textContent='Delete';button.onclick=()=>showDeleteDialog(rec.session_id);td.append(button);tr.append(td);$('storageRows').append(tr);}
+ out.textContent='Showing '+data.shown+' of '+data.total+' saved sessions. Only completed submissions appear in the table above.';
  }catch(e){out.textContent=e.message;}
 }
-$('showStorage').onclick=async()=>{if(!$('storageWrap').hidden){$('storageWrap').hidden=true;$('showStorage').textContent='Show all stored sessions';return;}$('storageWrap').hidden=false;$('showStorage').textContent='Hide stored sessions';await refreshStorage();};
+$('showStorage').onclick=async()=>{if(!$('storageWrap').hidden){$('storageWrap').hidden=true;$('showStorage').textContent='View all saved sessions';return;}$('storageWrap').hidden=false;$('showStorage').textContent='Hide saved sessions';await refreshStorage();};
 $('exportAll').onclick=()=>download('/admin/api/export-all','webgazer_completed_sessions.zip');
 $('refresh').onclick=refresh;$('logout').onclick=signOut;
 window.addEventListener('pagehide',signOut);
