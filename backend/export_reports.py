@@ -108,6 +108,11 @@ def _session_export(z, s3, bucket, sid, items, prefix=''):
     summaries = []
     batches = []
     manifest = {'session_id': sid, 'status': status_for(items), 'generated_at': datetime.now(timezone.utc).isoformat()}
+    session_number = submitted_at_utc = None
+    # Validation summary is checkpointed more than once; use only the latest
+    # copy when constructing one set of timing tables for each session.
+    latest_validation_summary = None
+    timing_per_run = {}
     for item in sorted(items, key=lambda x: x['Key']):
         key = item['Key']
         if not key.endswith('.json.gz'):
@@ -118,8 +123,11 @@ def _session_export(z, s3, bucket, sid, items, prefix=''):
         filename = key.rsplit('/', 1)[-1]
         if filename == 'start.json.gz':
             manifest['start'] = data
+            session_number = data.get('session_number')
         elif filename == 'completed.json.gz':
             manifest['completion'] = data
+            session_number = data.get('session_number') or session_number
+            submitted_at_utc = data.get('submitted_at_utc')
             manifest['status'] = 'incomplete' if data.get('partial') else 'submitted'
         elif '/batches/' in key:
             seq, kind = data.get('sequence'), data.get('kind')
@@ -135,10 +143,43 @@ def _session_export(z, s3, bucket, sid, items, prefix=''):
                     summaries.append({'session_id': sid, 'batch_sequence': seq, 'field': field,
                                       'value': json.dumps(value, ensure_ascii=False)})
                 if field == 'validation_summary' and isinstance(value, dict):
+                    latest_validation_summary = value
+                    run_number = value.get('validation_run_number', 1)
+                    # Keep the first complete checkpoint of each assessment, but
+                    # prefer the final one where available. Avoid duplicating an
+                    # assessment when both finish and validation_complete refer to it.
+                    timing_per_run[run_number] = value
                     for point in value.get('results') or []:
                         if isinstance(point, dict):
                             collections['validation_points'].append({'session_id':sid,
                                 'batch_sequence':seq, **point})
+    if timing_per_run:
+        collections['sampling_summary'] = []
+        collections['validation_points'] = [
+            {'session_id': sid, 'session_number': session_number,
+             'validation_run_number': run_number, **row}
+            for run_number, summary in sorted(timing_per_run.items())
+            for row in (summary.get('results') or []) if isinstance(row, dict)]
+        for run_number, summary in sorted(timing_per_run.items()):
+            sampling = summary.get('sampling_timing')
+            if isinstance(sampling, dict):
+                collections['sampling_summary'].append({
+                    'session_id': sid, 'session_number': session_number,
+                    'submitted_at_utc': submitted_at_utc,
+                    'validation_run_number': run_number, **sampling})
+            for source in ('validation_timing', 'validation_intervals', 'camera_intervals'):
+                rows = summary.get(source)
+                if isinstance(rows, list) and rows:
+                    collections[source].extend({
+                        'session_id': sid, 'session_number': session_number,
+                        'submitted_at_utc': submitted_at_utc,
+                        'validation_run_number': run_number, **row}
+                        for row in rows if isinstance(row, dict))
+        runs = (latest_validation_summary or {}).get('validation_runs')
+        if isinstance(runs, list):
+            collections['validation_runs'] = [
+                {'session_id': sid, 'session_number': session_number, **row}
+                for row in runs if isinstance(row, dict)]
     for field, rows in collections.items():
         z.writestr(base + 'csv/' + field + '.csv', _csv_content(rows))
     z.writestr(base + 'csv/batches.csv', _csv_content(batches))
@@ -190,7 +231,16 @@ def _session_export(z, s3, bucket, sid, items, prefix=''):
                 accuracy_deg, precision_deg = summary.get('accDeg'), summary.get('precDeg')
                 break
             except (TypeError, ValueError): pass
-    return {'session_id': sid, 'status': manifest['status'],
+    sampling = (latest_validation_summary or {}).get('sampling_timing') or {}
+    return {'session_id': sid, 'session_number': session_number,
+            'submitted_at_utc': submitted_at_utc, 'status': manifest['status'],
+            'sampling_rate_hz': sampling.get('effective_sampling_hz'),
+            'inter_sample_mean_ms': sampling.get('inter_sample_mean_ms'),
+            'inter_sample_sd_ms': sampling.get('inter_sample_sd_ms'),
+            'sampling_interval_count': sampling.get('interval_count'),
+            'camera_reported_frame_rate_fps': sampling.get('camera_reported_frame_rate_fps'),
+            'camera_observed_frame_rate_fps': sampling.get('observed_camera_fps'),
+            'camera_observed_interval_mean_ms': sampling.get('observed_frame_interval_mean_ms'),
             'accuracy_px':accuracy, 'accuracy_deg':accuracy_deg,
             'precision_px':precision, 'precision_deg':precision_deg,
             'gaze_samples': len(sample_rows),
@@ -223,6 +273,16 @@ def build_export(s3, bucket, session_id=None, max_size=350*1024*1024):
             z.writestr('README_EXPORT.txt',
                 'WebGazer validation study export.\n'
                 'csv/ contains flattened raw tables; raw/ preserves original compressed JSON checkpoints.\n'
+                                'validation_timing.csv: per-target callback timing statistics and quality flags.\n'
+                'validation_intervals.csv: every valid gaze prediction interval in each assessment.\n'
+                'camera_intervals.csv: every observed video frame interval when supported.\n'
+                'sampling_summary.csv: each validation run, both measured camera FPS and measured gaze Hz.\n'
+                'validation_runs.csv: assessments with their accuracy and quality flags.\n'
+                'Sampling rate = 1000 / mean callback interval (ms), using valid in-screen gaze predictions\n'
+                'within the same validation target, after the first 100 ms of each 2000 ms target.\n'
+                'All validation targets contribute, including unusable or interrupted ones.\n'
+                'camera_reported_frame_rate_fps is the track setting; observed_camera_fps is\n'
+                'from browser video frame presentation callbacks, not a direct sensor clock.\n'
                 'plots/ contains generated descriptive PNG figures, not independently validated eye movements.\n'
                 'Study sessions may not represent distinct people (study URL is open and anonymous).\n'
                 'Keep the optional names, demographics and raw gaze data in approved protected research storage.\n')

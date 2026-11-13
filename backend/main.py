@@ -54,6 +54,11 @@ def verify(token: str, secret: str) -> dict:
             raise ValueError('expired or malformed')
         if not re.fullmatch(r'[a-f0-9]{32}', data.get('sid', '')) or data.get('visit') != 'pilot':
             raise ValueError('invalid session')
+        # The extra label is signed, never supplied as a participant input. Older
+        # unexpired tokens without this field may finish already-started studies.
+        number = data.get('session_number')
+        if number is not None and (not isinstance(number, str) or not re.fullmatch(r'[0-9]{12}', number)):
+            raise ValueError('invalid session number')
         return data
     except (ValueError, TypeError, KeyError, UnicodeError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=401, detail='Invalid or expired submission token') from exc
@@ -221,9 +226,14 @@ def public_session(request: Request):
         raise HTTPException(503, 'This study is not currently accepting new sessions')
     throttle_anonymous(request)
     sid = secrets.token_hex(16)
+    # Separate, participant-facing numeric label; the 128-bit session ID remains the
+    # authoritative storage key. A 12-digit random number is not a unique-person ID.
+    session_number = f'{secrets.randbelow(10**12):012d}'
     expiry = int(time.time()) + 72 * 3600
-    token = sign({'type': 'session', 'sid': sid, 'visit': 'pilot', 'exp': expiry}, env('STUDY_SECRET'))
-    return {'session_id': sid, 'token': token, 'expires_at': expiry, 'visit': 'pilot'}
+    token = sign({'type': 'session', 'sid': sid, 'session_number': session_number,
+                  'visit': 'pilot', 'exp': expiry}, env('STUDY_SECRET'))
+    return {'session_id': sid, 'session_number': session_number,
+            'token': token, 'expires_at': expiry, 'visit': 'pilot'}
 
 
 @app.post('/api/sessions')
@@ -231,9 +241,12 @@ def start(req: StartRequest, authorization: str | None = Header(default=None)):
     session_id, data = identify(authorization)
     key = f'sessions/{session_id}/start.json.gz'
     if not object_exists(key):
-        upload_json(key, {'session_id': session_id, 'visit': data['visit'],
-                          'started_at': datetime.now(timezone.utc).isoformat()})
-    return {'session_id': session_id, 'status': 'ready'}
+        upload_json(key, {'session_id': session_id,
+                          'session_number': data.get('session_number'),
+                          'visit': data['visit'],
+                          'started_at_utc': datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')})
+    return {'session_id': session_id, 'session_number': data.get('session_number'),
+            'status': 'ready'}
 
 
 # Participants can write only to their own session, subject to size and count limits.
@@ -259,13 +272,10 @@ async def batch(session_id: str, seq: int, request: Request, authorization: str 
         payload = BatchRequest.model_validate_json(body)
     except Exception as exc:
         raise HTTPException(422, 'Invalid batch JSON') from exc
-    # Consent is recorded as the first upload for each session, not inferred from a click later.
-    if seq == 0 and payload.kind != 'consent':
-        raise HTTPException(422, 'First batch must contain consent acknowledgment')
-    if payload.kind == 'consent':
-        consent = payload.data
-        if seq != 0 or consent.get('agreed') is not True or not isinstance(consent.get('typed_name'), str) or not consent['typed_name'].strip() or not consent.get('version') or not consent.get('acknowledged_at'):
-            raise HTTPException(422, 'Consent record missing or incomplete')
+    # A voluntary start-of-study acknowledgment may be recorded, but submission
+    # does not depend on a second consent form or typed participant name.
+    if payload.kind == 'consent' and seq != 0:
+        raise HTTPException(422, 'The initial acknowledgment must use batch zero')
     key = f'sessions/{sid}/batches/{seq:06d}.json.gz'
     if object_exists(f'sessions/{sid}/completed.json.gz') and not object_exists(key):
         raise HTTPException(409, 'Session already submitted. New batches cannot be appended.')
@@ -274,8 +284,9 @@ async def batch(session_id: str, seq: int, request: Request, authorization: str 
     existing_files = s3().list_objects_v2(Bucket=bucket(), Prefix=f'sessions/{sid}/', MaxKeys=1000).get('Contents', [])
     if len(existing_files) >= 605 or sum(int(obj.get('Size', 0)) for obj in existing_files) >= 100 * 1024 * 1024:
         raise HTTPException(413, 'Session upload storage limit reached')
-    response = upload_json(key, {'visit': data['visit'], 'sequence': seq,
-                                 **payload.model_dump()}, record_type=payload.kind)
+    response = upload_json(key, {'visit': data['visit'],
+                                 'session_number': data.get('session_number'),
+                                 'sequence': seq, **payload.model_dump()}, record_type=payload.kind)
     return {'sequence': seq, **response}
 
 
@@ -288,8 +299,13 @@ def complete(session_id: str, req: CompleteRequest, authorization: str | None = 
     completion_key = f'sessions/{sid}/completed.json.gz'
     old_completion=object_exists(completion_key)
     if old_completion:
-        return {'status': 'acknowledged', 'session_id': sid, 'already_completed': True,
-                'partial':old_completion.get('Metadata',{}).get('kind')=='partial'}
+        # Return the ORIGINAL server timestamp after network retries, not a newly
+        # generated time that would misrepresent the moment of submission.
+        saved = json.loads(gzip.decompress(s3().get_object(Bucket=bucket(), Key=completion_key)['Body'].read()))
+        return {'status': 'acknowledged', 'session_id': sid,
+                'session_number': saved.get('session_number'),
+                'submitted_at_utc': saved.get('submitted_at_utc'),
+                'already_completed': True, 'partial': saved.get('partial', False)}
     # One paginated S3 listing instead of hundreds of slow HEAD requests.
     prefix=f'sessions/{sid}/batches/'
     present=set(); continuation=None
@@ -305,17 +321,19 @@ def complete(session_id: str, req: CompleteRequest, authorization: str | None = 
     missing=next((n for n in range(req.last_sequence+1) if n not in present),None)
     if missing is not None:
         raise HTTPException(409, f'Upload incomplete: missing batch {missing}')
-    consent_meta=object_exists(f'{prefix}000000.json.gz')
-    if not consent_meta or consent_meta.get('Metadata', {}).get('kind') != 'consent':
-        raise HTTPException(409, 'Consent acknowledgment has not arrived')
     last_meta=object_exists(f'{prefix}{req.last_sequence:06d}.json.gz')
     if not last_meta or last_meta.get('Metadata', {}).get('kind') not in ('finish','incomplete_finish'):
         raise HTTPException(409, 'Cannot finalize: the final study checkpoint has not arrived')
     is_partial = last_meta.get('Metadata', {}).get('kind')=='incomplete_finish'
-    upload_json(completion_key, {'session_id':sid,
-         'visit':data['visit'], 'last_sequence':req.last_sequence, 'complete_client_ack':True, 'partial':is_partial},
-                record_type='partial' if is_partial else 'complete')
-    return {'status': 'acknowledged', 'session_id': sid, 'partial':is_partial}
+    submitted_at_utc = datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+    completion = {'session_id': sid, 'session_number': data.get('session_number'),
+                  'submitted_at_utc': submitted_at_utc, 'visit': data['visit'],
+                  'last_sequence': req.last_sequence, 'complete_client_ack': True,
+                  'partial': is_partial}
+    upload_json(completion_key, completion, record_type='partial' if is_partial else 'complete')
+    return {'status': 'acknowledged', 'session_id': sid,
+            'session_number': data.get('session_number'),
+            'submitted_at_utc': submitted_at_utc, 'partial': is_partial}
 
 
 # Admin routes use a separate researcher password token, never the participant token.

@@ -1,3 +1,5 @@
+> **Historical protocol:** This document describes the October 2026 pilot. The active November 13, 2026 participant sequence and the sampling exports are described in [README.md](README.md) and [CHANGELOG_FULL_PIPELINE.md](CHANGELOG_FULL_PIPELINE.md). Please use those current documents when testing the new bundle.
+
 # Study plan: independent webcam gaze validation
 
 **Status:** Research proposal and functional prototype. Not validated against a reference eye tracker. Thresholds and timings are implementation defaults, not published parameters directly attributed to Brand et al.

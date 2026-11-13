@@ -1,73 +1,85 @@
-# WebGazer Validation
+# Gaze Check: webcam gaze validation study
 
-A browser based study application for evaluating webcam eye tracking with a guided setup and validation procedure. The project uses [WebGazer.js](https://github.com/brownhci/WebGazer) for gaze prediction and adds its own participant interface, calibration tasks, quality checks, visual search task, and research data collection system.
+Gaze Check is a desktop/laptop browser study that uses WebGazer 2.0.1 to measure the performance of webcam based gaze predictions. It includes camera setup, repeated calibration and validation, and an E search task. It is a research pilot, not a clinical eye tracker or a hardware validation against a reference system.
 
-The main question is how consistently people can set up webcam eye tracking and obtain usable gaze estimates on their own. The project is a research pilot. It is not a clinical eye tracking tool or a validated replacement for a dedicated eye tracker.
+## Participant procedure
 
-## Study procedure
+1. Read the short privacy notice, acknowledge participation, and answer setup and optional demographic questions. No assigned study ID, name, or manually entered session number is needed. The server generates a 12 digit random session number and a separate secure internal identifier.
+2. Check webcam access, face visibility and lighting, screen measurements, and viewing distance. The app asks for a tape measure when available, but a participant can continue without one. The app asks the participant to close all other apps.
+3. Enter browser fullscreen using the displayed start button. Fullscreen is required for calibration, validation and E search. Browsers require a real user interaction to enter fullscreen, so the application cannot silently override that permission. Returning to a window pauses the task until fullscreen is restored.
+4. Complete 12 calibration targets in a 4 by 3 grid, followed by **50 independent validation presentations**: 25 distinct targets in two randomized passes. Validation uses 2,000 ms per target and a 250 ms blank interval. The first 100 ms of each presentation are excluded from quality and gaze timing calculations.
+5. If the first validation does not meet the predeclared gaze quality and validity rules, the app automatically calibrates once more and repeats the full validation. **Two calibration attempts maximum**; participants do not see quality grades or choose a recalibration. Regardless of the second result, the study proceeds to search.
+6. Perform 10 practice E search trials followed by 50 study E search trials. Each trial displays 18 separated stimuli distributed across four screen quadrants, with randomized locations inside the quadrants and exactly two target Es. A layout is rejected if items would overlap. The E search requires mouse selection, so a pointer remains available there; it is hidden during dot calibration and validation. Intermediary progress text/bars and participant results screens are hidden.
+7. After all 50 study E search trials, the app automatically prepares its analysis, uploads study records, and shows the server receipt. There is no manual final finish/submit decision, gaze visualization, recalibration button, or participant data download. A Retry submission button appears only if the automatic network operation fails.
 
-The experiment includes the following tasks:
+The opening privacy acknowledgment is still required **at study entry**, but there is no consent recheck or typed signature at submission. Sites must ensure that the study entry acknowledgment is adequate under the applicable research ethics approval before recruiting participants.
 
-1. Optional participant information and questions about vision and previous eye tracker experience.
-2. Screen measurement, camera permission, lighting, face positioning, and viewing distance checks.
-3. Thirteen calibration targets used to provide training positions to WebGazer.
-4. Five independent target locations to check calibration quality.
-5. Twelve validation targets to measure gaze error, precision, and missing data.
-6. An optional visual search task with 50 trials, two E targets, and 16 distractors in each trial.
-7. A final screen where the participant chooses when to submit the study data.
+During active tasks, loss of the tracked face, estimated head displacement from the calibrated position, estimated distance change, or loss of fullscreen pauses the task. The positioning chime is always enabled in the code and repeats during pauses. Browser audio policies, muted computers, and uncalibrated webcam pose estimates mean that audible warnings and movement detection cannot be guaranteed for all participants.
 
-Calibration and validation are kept separate. WebGazer uses the calibration positions to learn a relationship between eye features and screen coordinates. The validation targets are used to evaluate its predictions. These checks assume that participants follow the instructions and look at the intended target.
+## Gaze sampling versus camera frame rate
 
-## Data recorded
+These are **three distinct measurements** saved per validation attempt:
 
-When available, the application records predicted gaze coordinates in pixels, timestamps, gaze targets, screen and task information, missing predictions, interruptions, and sampling intervals. It also records calibration results, setup quality measurements, visual search responses, and optional participant information.
+| Export column | Meaning | Source |
+| --- | --- | --- |
+| `effective_sampling_hz` | Mean rate of retained valid WebGazer gaze predictions | `1000 / inter_sample_mean_ms` |
+| `observed_camera_fps` | Video frames delivered to the browser's video element per second, estimated from consecutive observed frame presentation times | `HTMLVideoElement.requestVideoFrameCallback()` (when supported) |
+| `camera_reported_frame_rate_fps` | Frame rate reported in the active camera track configuration | `MediaStreamTrack.getSettings().frameRate` (if available) |
 
-The application calculates gaze error, estimated accuracy and precision in visual degrees, gaze speed, and candidate fixation and saccade events. These are derived estimates rather than direct measurements of true eye movements. The visual angle calculations depend on screen measurements and estimated or measured viewing distance. Raw gaze records are retained to support alternative analyses.
+**How gaze interval timing works.** At every gaze prediction, the app calls `performance.now()`. It retains finite in-bounds gaze predictions inside the analyzed portion of each validation target (after the first 100 ms). For consecutive retained predictions **within that target only**, it calculates the difference in milliseconds; it does not bridge between targets or blank intervals. The app then pools these per-target intervals across the validation run. The average and population standard deviation are stored. Rates are `1000 / mean_interval_ms` if at least three measured intervals are available. Gaps from missing or invalid predictions can reduce this effective valid prediction rate. The mean covers all validation targets, including those subsequently marked unusable or interrupted. Each interval also has the relevant target number and relative session timestamp saved.
 
-## Application structure
+**How camera timing works.** When browser support exists, `requestVideoFrameCallback()` supplies the presentation time for a video frame. Differences between consecutive frame presentation timestamps are retained during validation, and the average interval gives the observed delivered video FPS. This is not an independent camera sensor FPS measurement. Frames can be dropped before the browser callback. If the API is unsupported or insufficient data exist, `observed_camera_fps` remains blank rather than being guessed. The reported camera track setting is saved separately; it is not substituted for the observed value.
 
-The participant interface, FastAPI server, and researcher portal can run from the same Railway service. Raw submissions are saved to a private, S3 compatible object storage bucket. The participant page does not require an invitation or an account. Each browser session receives an internal identifier used to associate submitted records.
+### Researcher export files
 
-The research dashboard is separately password protected. It reports received and completed sessions and supports individual or whole study exports with CSV files, raw JSON records, summaries, and descriptive plots. Session counts are not necessarily counts of unique individuals because the study page is open.
+The password protected dashboard continues to allow researchers to download a single session or the study as ZIP archives. Each session includes raw compressed JSON plus these CSVs:
 
-| File | Purpose |
+* `sampling_summary.csv`: one row **per validation run**; separate camera FPS, valid gaze Hz, interval means and SD, sample counts, methods and UTC receipt.
+* `validation_intervals.csv`: all consecutive valid WebGazer callback intervals and their two relative session timestamps, separated by target and validation run.
+* `validation_timing.csv`: per-target gaze timing summary, counts, usability and interruption flags.
+* `camera_intervals.csv`: observed video frame intervals and relative session timestamps, separated by validation run.
+* `validation_runs.csv`: validation attempts and whether they met quality requirements.
+* `validation_points.csv`, `gaze_events.csv`, `search_trials.csv`, `practice_trials.csv`, `other_fields.csv`, plus other analysis records and plots.
+
+The server records `submitted_at_utc` at successful completion, using the **server clock**. This ISO 8601 UTC timestamp is included in the acknowledgment, completed session, dashboard and exports. A repeated completion call preserves the original receipt time. Relative performance timestamps are measured on the participant's own machine and are not synchronized with the server clock.
+
+## Deployment and requirements
+
+The FastAPI backend, static participant site and researcher dashboard can run together with the included `Dockerfile` on Railway or an equivalent container host. The backend needs a private S3 compatible bucket and environment credentials. See `RAILWAY_DEPLOY_V2_6.md` for earlier platform configuration guidance and confirm environment variable names against `backend/main.py` before deployment. Run the new build on a staging site before replacing the current research URL. The deployment file `deploy-config.js` must point to the appropriate HTTPS API. Face detection requires access to model files, which may be restricted by browser/network configurations.
+
+Researcher exports must remain protected, and collected gaze, response, browser and optional demographic information must be handled under the approved research security plan. No participant recordings, credentials, or study data are distributed in this source bundle. Camera images are processed locally; no face images or video are intentionally saved or uploaded by the application.
+
+### Tests
+
+Run from the project directory:
+
+```bash
+python -m pytest backend/tests/test_api.py -q
+node test_quality.cjs
+node test_kinematics.cjs
+node test_upload_node.cjs
+python browser_full_flow_smoke.py
+```
+
+The browser test requires Playwright and Chromium; it uses **mock WebGazer and simulated face input**, not actual camera hardware. It checks 600 E layouts across four common desktop viewports and runs the full pipeline. Real webcam, different browsers and hardware, audio permission/muting, head tracking reliability, slower devices, and deployed server storage/upload remain **to be tested with pilot participants**. No guarantee of positional gaze accuracy or stable camera FPS is implied by the unit tests.
+
+## Project files
+
+| File | Responsibility |
 | --- | --- |
-| `index.html` | Participant interface and experiment tasks |
-| `webgazer-2.0.1.js` | Bundled WebGazer gaze prediction library |
-| `quality.js` | Calibration and gaze quality calculations |
-| `gaze_kinematics.js` | Estimated movement measurements from gaze predictions |
-| `upload.js` | Local checkpoints and final data submission |
-| `backend/main.py` | Participant API and storage operations |
-| `backend/admin_portal.py` | Researcher authentication and access controls |
-| `backend/admin_dashboard.html` | Researcher dashboard |
-| `backend/export_reports.py` | CSV and plot exports |
+| `index.html` | Setup, fullscreen task control, face monitoring, calibration, validation, E search and automatic submission |
+| `quality.js` | Gaze validity/quality calculations |
+| `gaze_kinematics.js` | Descriptive fixation and saccade candidate analysis |
+| `upload.js` | In-memory checkpoints and HTTPS submission |
+| `backend/main.py` | Public session API and secure storage |
+| `backend/export_reports.py` | Researcher CSVs, raw JSON and plots |
+| `backend/admin_portal.py` | Protected researcher dashboard API |
+| `backend/admin_dashboard.html` | Researcher interface |
+| `browser_full_flow_smoke.py` | Simulated browser full study and geometry checks |
+| `CHANGELOG_FULL_PIPELINE.md` | Changes in this bundle and verification limits |
 
-## Data privacy and research status
+## License and acknowledgments
 
-Camera processing takes place in the participant's browser. The application is designed to submit gaze records and study responses, not webcam recordings. Typed consent names and study responses can identify participants, and collected data must be handled under the relevant research consent and data security procedures.
+The source code in this project is supplied under GPLv3 (`LICENSE`). The included unmodified WebGazer library and bundled dependencies retain their original notices; see `THIRD_PARTY_NOTICES.md`.
 
-This software has passed code tests and simulated browser tests, but it still requires full camera, upload, security, and multi participant testing in a live deployment. The gaze estimates are not independently verified against a reference eye tracker. The optional visual search task and calculated movement events should be interpreted with those limitations in mind.
-
-Study datasets, access credentials, and participant exports are not included in this repository. The project reads deployment credentials from runtime environment variables. No environment files, passwords, password hashes, API tokens, or bucket access keys are distributed with the source code. The project reads deployment credentials from runtime environment variables. No environment files, passwords, password hashes, API tokens, or bucket access keys are distributed with the source code.
-
-## References and acknowledgment
-
-The gaze prediction library was developed by the [Brown WebGazer team](https://github.com/brownhci/WebGazer). The bundled `webgazer-2.0.1.js` file has been retained without modifying its tracking algorithm. Third party copyright and license notices are preserved.
-
-Papoutsaki, A., et al. (2016). *WebGazer: Scalable Webcam Eye Tracking Using User Interactions*. Proceedings of IJCAI 2016.
-
-The validation study design is informed by Brand et al. (2021), *Evaluating the data quality of the Gazepoint GP3 low cost eye tracker when used independently by study participants*. The present project uses WebGazer and does not reproduce the Gazepoint hardware or claim equivalent performance.
-
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for library attribution.
-
-## License
-
-Project source code is distributed under the **GNU General Public License, version 3 (GPLv3)**. See [LICENSE](LICENSE). The included WebGazer bundle remains subject to the original WebGazer and bundled dependency notices. Research data are not part of the open source distribution.
-
-## Study procedure (October 2026 version)
-
-The participant sees a short privacy notice and gives an explicit typed-name and checkbox acknowledgment before starting setup or enabling the camera. Webcam imagery is used in the browser for eye feature extraction and is not intentionally retained or uploaded. The study saves the consent acknowledgment in the submission record.
-
-WebGazer learns from 12 calibration targets arranged as a 4 × 3 grid. Each target appears for 2,000 ms followed by 250 ms without a target. To avoid evaluating the model at exactly the locations used to train it, the accuracy and precision task uses a **separate** 12 target 4 × 3 grid. Its targets appear for 2,000 ms followed by a 250 ms blank interval, with the first 100 ms excluded when calculating accuracy and precision. The visual search task contains 50 trials, each with two correct-facing targets and 16 distractors.
-
-This follows the main measurement tasks in Brand et al. (2021), while substituting WebGazer for the GP3 hardware and adding a guided browser interface. Gaze and derived fixations or saccades are **estimates**. Screening thresholds are pilot criteria, not validated WebGazer standards. A completed study upload requires a consent record and participant action on the final submit button.
+The study design was informed by Brand et al. (2021) and WebGazer by Papoutsaki et al. (2016). The browser procedure differs from the Gazepoint GP3 hardware study and should not be treated as equivalent.

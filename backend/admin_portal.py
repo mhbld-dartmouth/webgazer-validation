@@ -146,7 +146,8 @@ def register(app, get_s3, get_bucket):
         counts = {'submitted':0, 'incomplete':0, 'uploading':0, 'receipt_error':0}
         for sid, items in grouped.items():
             keys = {v['Key'].rsplit('/',1)[-1] for v in items}
-            item = {'session_id':sid, 'status':'uploading',
+            item = {'session_id':sid, 'session_number':None,
+                    'submitted_at_utc':None, 'status':'uploading',
                     'batches':sum('/batches/' in x['Key'] for x in items),
                     'bytes':sum(int(x.get('Size',0)) for x in items),
                     'last_activity':None, 'visit':'pilot'}
@@ -160,8 +161,17 @@ def register(app, get_s3, get_bucket):
                 try:
                     complete = read_json(s3, bucket, f'sessions/{sid}/completed.json.gz')
                     item['status'] = 'incomplete' if complete.get('partial') else 'submitted'
+                    item['session_number'] = complete.get('session_number')
+                    item['submitted_at_utc'] = complete.get('submitted_at_utc')
                 except Exception:
                     item['status'] = 'receipt_error'
+            # Still show the number for sessions in progress if the start record exists.
+            if not item['session_number'] and 'start.json.gz' in keys:
+                try:
+                    started = read_json(s3, bucket, f'sessions/{sid}/start.json.gz')
+                    item['session_number'] = started.get('session_number')
+                except Exception:
+                    pass
             counts[item['status']] = counts.get(item['status'],0)+1
             records.append(item)
         records.sort(key=lambda x:x['last_activity'] or '', reverse=True)
@@ -173,7 +183,12 @@ def register(app, get_s3, get_bucket):
                 seq = int(complete['last_sequence'])
                 batch = read_json(s3, bucket, f'sessions/{sid}/batches/{seq:06d}.json.gz')
                 summary = (batch.get('data') or {}).get('validation_summary') or {}
-                item['metrics'] = {x:summary.get(x) for x in ('accPx','accDeg','precPx','precDeg','hz','validity')}
+                item['metrics'] = {x:summary.get(x) for x in ('accPx','accDeg','precPx','precDeg','hz','im','isd','validity')}
+                timing = summary.get('sampling_timing') or {}
+                item['metrics']['sampling_interval_count'] = timing.get('interval_count')
+                item['metrics']['camera_reported_frame_rate_fps'] = timing.get('camera_reported_frame_rate_fps')
+                item['metrics']['camera_observed_frame_rate_fps'] = timing.get('observed_camera_fps')
+                item['metrics']['camera_observed_interval_mean_ms'] = timing.get('observed_frame_interval_mean_ms')
                 item['validation_passed'] = (summary.get('screenQuality') or {}).get('pass')
             except Exception:
                 pass

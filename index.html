@@ -117,6 +117,16 @@
   .trouble{display:none;margin-top:20px;border:1px solid var(--line);background:#fbfaf8;border-radius:12px;padding:14px 18px;font-size:14px;color:#3C4247}
   .trouble.on{display:block} .trouble ul{margin:6px 0 0;padding-left:18px} .trouble li{margin:3px 0}
 
+  /* In calibration and validation, only the targets appear. Click selection in the
+     E search intentionally retains the pointer. */
+  body.task #s-cal,body.task #s-val{cursor:none!important}
+  body.task #s-cal *,body.task #s-val *{cursor:none!important}
+  body.task #s-cal .hud,body.task #s-val .hud,
+  body.task #s-cal .pbar,body.task #s-val .pbar{display:none!important}
+  body.task #rail{display:none}
+  #s-search .searchbar{display:none}
+  #s-search{cursor:default}
+  .stim.target{cursor:pointer}
   /* task stages */
   /* Calibration and validation MUST share a background: the screen lights the face, and WebGazer
      predicts from how the eyes look, so a brighter screen after calibration throws predictions off. */
@@ -137,7 +147,6 @@
   .hud .key{font-size:11px;color:#9AA2AB;border:1px solid rgba(255,255,255,.22);border-radius:5px;padding:0 6px;line-height:18px}
   .count{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:84px;font-weight:650;color:#E8E3D6;line-height:1;pointer-events:none}
   .count small{display:block;font-size:15px;font-weight:500;color:#9AA2AB;text-align:center;margin-top:14px}
-  #gazeDot{position:fixed;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;background:var(--gaze);box-shadow:0 0 0 4px rgba(62,156,142,.20);pointer-events:none;display:none;z-index:80}
 
   /* overlays */
   #reposition,#instruct{position:fixed;inset:0;z-index:55;display:none;align-items:center;justify-content:center;background:rgba(20,23,28,.60);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);padding:24px}
@@ -170,6 +179,7 @@
   .stim.found .c{color:#2F6E63}
   .stim.practice-found .c{color:#16744F}
 
+  #s-res,#s-sres{display:none!important}
   /* results */
   .verdict{display:grid;grid-template-columns:30px 1fr;gap:12px;align-items:start;border-radius:12px;padding:14px 18px;margin:0 0 20px;border:1px solid var(--line)}
   .verdict .ic{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
@@ -209,13 +219,13 @@
     <li><span class="n">2</span><span class="l">Camera check</span></li>
     <li><span class="n">3</span><span class="l">Calibrate</span></li>
     <li><span class="n">4</span><span class="l">Validate</span></li>
-    <li><span class="n">5</span><span class="l">Results</span></li>
+    <li><span class="n">5</span><span class="l">Submit</span></li>
   </ol>
 </header>
 
 <div id="app">
 
-  <!-- The participant questions and screen measurement come first. An assigned participant ID is required. -->
+  <!-- No assigned participant ID: the server assigns a random session number on start. -->
 <!-- 1 · SETUP (three short panels) -->
   <section class="stage on" id="s-setup">
     <div class="sheet"><div class="card">
@@ -227,14 +237,12 @@
         <p class="okbox"><b>Estimated total time: about 15–25 minutes</b><span style="display:block; margin-top:6px">Most of the time is spent setting up the camera and finding letters. It may take longer if you need a retry or more time to find targets. We will show an estimate before each step.</span></p>
         <div class="okbox" style="margin:16px 0" role="note" aria-label="Study privacy notice">
           <b>Privacy notice</b>
-          <p style="margin:7px 0">Webcam images are used temporarily in your browser to estimate where you are looking. <b>We do not save or upload webcam photos, video, or face images.</b> The study collects predicted gaze positions, timestamps, calibration and validation measurements, target positions, clicks and response times, browser and device information, and any questionnaire answers you provide.</p>
-          <p style="margin:7px 0">Results are held only in this open browser tab during the task, not saved in persistent browser storage. They are sent over HTTPS to the study server only when you choose <b>Submit Study Data</b>. If you refresh or close the tab before submitting, those unsent results will be lost. The research team can view and export those records in a password protected dashboard. You may stop participating at any time. If you do not submit, do not press the final submission button.</p>
-          <p style="margin:7px 0">Entering your assigned participant ID and checking the box below confirms that you have read this information and agree to participate and submit the study data. This short notice is intended for an IRB approved study; it does not replace any longer consent materials required by the study protocol.</p>
+          <p style="margin:7px 0">Webcam images are used temporarily in your browser to estimate where you are looking. <b>We do not save or upload webcam photos, video, or face images.</b> The study collects predicted gaze positions, timestamps, camera frame timing when supported, calibration and validation measurements, target positions, clicks and response times, browser and device information, and any questionnaire answers you provide.</p>
+          <p style="margin:7px 0">Results are held only in this open browser tab during the task, not saved in persistent browser storage. They are sent over HTTPS automatically after the full task sequence finishes. If you refresh or close the tab before the server confirms receipt, unsent results may be lost. The research team can view and export those records in a password protected dashboard. You may stop participating at any time by closing the tab before submission begins. Data are automatically submitted when the study is completed.</p>
+          <p style="margin:7px 0">Checking the box below confirms that you have read this information and agree to participate. A random session number is generated automatically when you continue. This short notice does not replace any consent materials required by your approved study protocol.</p>
         </div>
-        <p class="okbox" id="needTape"><b>You’ll need:</b> a bank or ID card (to measure your screen) <span id="needTapeWhat">and a tape measure or ruler</span> (to measure how far you sit from the camera). At the end, press the large Submit Study Data button to send your records to the research server. If this is a local pilot, download a backup instead.</p>
-        <div class="field"><label for="participantId">Participant ID (assigned by the study team)</label>
-          <input id="participantId" class="wide" type="text" maxlength="40" placeholder="Enter your assigned participant ID" autocomplete="off" autocapitalize="off" spellcheck="false" pattern="[A-Za-z0-9_-]{3,40}" title="Use 3–40 letters, numbers, hyphens or underscores" required>
-          <div class="hint" style="margin-top:6px">Your participant ID and agreement acknowledgment are included in the study submission. Do not enter your name, email address, phone number or another personal identifier. A random technical session ID is also assigned automatically.</div></div>
+        <p class="okbox" id="needTape"><b>You’ll need:</b> a bank or ID card (to measure your screen) <span id="needTapeWhat">and a tape measure or ruler</span> (to measure how far you sit from the camera). After the final task, your records are submitted automatically to the research server.</p>
+        <p class="hint">Session number: generated automatically. You do not need a participant ID.</p>
         <div class="field"><label class="opt" for="consentAgree"><input type="checkbox" id="consentAgree" required><span>I have read the privacy and study information above and agree to participate and submit the data described.</span></label></div>
         <div class="field"><label id="lblExperience">Have you used an eye tracker before?</label>
           <div class="seg" role="radiogroup" aria-labelledby="lblExperience">
@@ -243,7 +251,6 @@
           </div>
           <p class="hint" style="margin-top:7px">This refers to previous experience with any eye tracking device. It is different from calibrating WebGazer during this session.</p>
         </div>
-        <p class="hint">Enter the participant ID provided by the study team. A separate random technical session ID is assigned automatically.</p>
         <div class="errbox" id="inviteErr"></div>
 
         <div class="row tight" style="margin-top:18px">
@@ -391,14 +398,9 @@
           <li><b>Light on your face, not behind you.</b> Face a window or lamp; avoid a bright window behind you.</li>
           <li><b>Glasses off if you can see the screen clearly without them</b>; reflections on the lenses confuse the tracker. If you can’t, keep them on. <b>Contact lenses are fine</b>, so keep them in.</li>
           <li><b>Sit 50–70 cm from the screen</b>, about an arm’s length, and stay in that position until everything is finished. Keep your head still.</li>
-          <li><b>Close other heavy apps and tabs.</b> The tracker needs the processing power.</li>
+          <li><b>Close all other apps.</b></li>
         </ol>
-        <label class="opt"><input type="checkbox" id="optFs" checked><span>Use full screen for the tasks <span class="hint">(recommended, so the dots can reach the edges of the screen)</span></span></label>
-        <details class="more"><summary>Advanced options</summary>
-          <label class="opt"><input type="checkbox" id="optSound" checked><span>Play a soft chime when I move out of position</span></label>
-          <label class="opt"><input type="checkbox" id="optTape"><span>Ask for the viewing distance measured with a tape measure <span class="hint">(needed for reliable results in degrees; off = camera estimate)</span></span></label>
-          <label class="opt" hidden><input type="checkbox" id="optSmooth" disabled><span>Smooth the gaze signal <span class="hint">(used for results shown; raw and smoothed gaze are both saved either way)</span></span></label>
-        </details>
+        <p class="hint">Fullscreen and the positioning warning chime are required for this study. Viewing distance will be measured, when possible, for degree-based outcomes.</p>
         <p class="hint" style="margin-top:16px">When you press the button, your browser asks to use the camera. Choose <b>Allow</b>.</p>
         <div class="row" style="margin-top:12px">
           <button class="btn ghost" data-panel="p-screen">Back</button>
@@ -477,14 +479,14 @@
 <!-- 3 · CALIBRATION -->
   <section class="stage" id="s-cal">
     <div class="pbar" id="calBar"></div>
-    <div class="hud"><span id="calHud">Follow the dot</span><span class="key">Esc</span><span>stop</span></div>
+    <div class="hud" aria-hidden="true"><span id="calHud">Follow the dot</span></div>
   </section>
 
   <!-- This is the separate task where we check how close predictions are to the target. -->
 <!-- 4 · VALIDATION -->
   <section class="stage" id="s-val">
     <div class="pbar" id="valBar"></div>
-    <div class="hud"><span id="valHud">Look at the cross</span><span class="key">Esc</span><span>stop</span></div>
+    <div class="hud" aria-hidden="true"><span id="valHud">Look at the cross</span></div>
   </section>
 
   <!-- 5 · RESULTS -->
@@ -505,24 +507,7 @@
       <details class="table"><summary>Per-point details</summary>
         <table id="ptTable"><thead><tr><th>Point</th><th>Target x,y</th><th>Accuracy</th><th>Precision</th><th>Valid n</th></tr></thead><tbody></tbody></table>
       </details>
-      <p class="note" id="resNote"></p>
-      <div class="row">
-        <button class="btn" id="toSearch">Next: search practice (any accuracy)</button>
-        <button class="btn ghost" id="reCalFromRes">Recalibrate</button><button class="btn ghost" id="toExp">Finish early (incomplete session)</button>
-      </div>
-      <div class="row tight">
-        <button class="btn ghost small" id="gazeToggle" aria-pressed="false">Show my gaze</button>
-      </div>
-      <div class="group">
-        <p class="gl">Your data</p>
-        <div class="row tight">
-          <button class="btn ghost small" id="dlAll">Download all data</button>
-          <button class="linkbtn" id="dlValidation">Validation CSV</button>
-          <button class="linkbtn" id="dlRaw">Raw samples CSV</button>
-        </div>
-        <div class="sendbox"></div>
-      </div>
-      <p class="cite">WebGazer protocol adapted from Brand, Diamond, Thomas &amp; Gilbert-Diamond (2021), <em>Behavior Research Methods, 53</em>(4), 1502–1514. The independent accuracy assessment uses 25 distinct screen positions (the original 12-point 4×3 Brand-style subset plus 13 additional positions), shown in two separately randomized passes (50 presentations total), with 2000 ms targets, 250 ms blank intervals, and exclusion of the first 100 ms. Calibration uses a separate 12-point WebGazer training grid. The visual search task has 10 practice trials and 50 study trials. The E and # display is proportionally reduced from Brand’s 165×245 CSS-pixel bordered reference stimulus when necessary so that all 18 bordered items remain separated; its scale and viewport are recorded per trial. The webcam implementation is not an exact replication of the GP3 hardware protocol. Primary accuracy is mean gaze offset and primary precision is RMS spatial dispersion; sample-level error and successive-point RMS are also exported.
+      <p class="note" id="resNote"></p><p class="cite">WebGazer protocol adapted from Brand, Diamond, Thomas &amp; Gilbert-Diamond (2021), <em>Behavior Research Methods, 53</em>(4), 1502–1514. The independent accuracy assessment uses 25 distinct screen positions (the original 12-point 4×3 Brand-style subset plus 13 additional positions), shown in two separately randomized passes (50 presentations total), with 2000 ms targets, 250 ms blank intervals, and exclusion of the first 100 ms. Calibration uses a separate 12-point WebGazer training grid. The visual search task has 10 practice trials and 50 study trials. The E and # display is proportionally reduced from Brand’s 165×245 CSS-pixel bordered reference stimulus when necessary so that all 18 bordered items remain separated; its scale and viewport are recorded per trial. The webcam implementation is not an exact replication of the GP3 hardware protocol. Primary accuracy is mean gaze offset and primary precision is RMS spatial dispersion; sample-level error and successive-point RMS are also exported.
         Viewing distance: the participant's tape measurement when given; otherwise estimated from the distance between the eyes in WebGazer's face mesh (average adult interpupillary distance, assumed camera field of view).</p>
     </div></div>
   </section>
@@ -531,7 +516,7 @@
   <section class="stage" id="s-search">
     <div class="searchbar"><span class="tag">Find the letters</span>
       <span id="searchMsg">Two of the "E"s face the normal way. Click each one.</span>
-      <span class="spacer"></span><span class="tag">Space: skip round · Esc: stop</span></div>
+      </div>
     <div id="searchArea"></div>
   </section>
 
@@ -546,51 +531,20 @@
       <details class="table"><summary>Full table</summary>
         <table id="rocTable"><thead><tr><th>Min fix. (ms)</th><th>AOI (w×h px)</th><th>TP</th><th>FP</th><th>FN</th><th>TN</th><th>Target detection</th><th>Distractor rejection</th></tr></thead><tbody></tbody></table>
       </details>
-      <p class="note" id="sresNote"></p>
-      <div class="row">
-        <button class="btn" id="toExp2">Finish session</button>
-        <span class="hint">Each study session includes one 50 trial search task.</span>
-        <button class="btn ghost" id="backRes">Back to accuracy results</button>
-      </div>
-      <div class="group">
-        <p class="gl">Your data</p>
-        <div class="row tight">
-          <button class="btn ghost small" id="dlAll2">Download all data</button>
-          <button class="linkbtn" id="dlSearch">Search results CSV</button>
-        </div>
-        <div class="sendbox"></div>
-      </div>
-      <p class="cite">Visual-search task adapted from Brand et al. (2021): 10 practice and 50 experimental trials, each with 2 targets and 16 distractors. Correct target clicks provide the operational ground-truth proxy within 500 ms, not independent eye movement ground truth;
+      <p class="note" id="sresNote"></p><p class="cite">Visual-search task adapted from Brand et al. (2021): 10 practice and 50 experimental trials, each with 2 targets and 16 distractors. Correct target clicks provide the operational ground-truth proxy within 500 ms, not independent eye movement ground truth;
         fixations via an Engbert &amp; Kliegl (2003) velocity detector (λ=6, median-based SD); TP/FP/FN/TN scored within a 500 ms
         click-linked events across eight AOI sizes and 100/150/275 ms minimum fixation durations. WebGazer stimulus dimensions differ from the GP3 study; comparisons remain methodological, not direct performance equivalence.</p>
     </div></div>
   </section>
-
-  <!-- 6 · EXPERIMENTS -->
-  <section class="stage" id="s-exp">
-    <div class="sheet"><div class="card">
-      <p class="eyebrow">Launcher</p>
-      <h1 style="margin-bottom:8px">Run an experiment</h1>
-      <p class="hint" id="expIntro"></p>
-      <div id="expList"></div>
-      <div class="row">
-        <button class="btn ghost" id="saveAll">Download all data</button>
-        <button class="btn ghost" id="expBack">Back to results</button>
-        <button class="btn" id="finishBtn">Finish task and turn off camera</button>
-      </div>
-      <div class="sendbox"></div>
-    </div></div>
-  </section>
-
-  <!-- Submission only happens after the participant presses the final button. -->
+  <!-- Submission begins automatically once the final task completes. -->
 <!-- 7 · DONE -->
   <section class="stage" id="s-done">
     <div class="sheet"><div class="card">
       <p class="eyebrow">Finished</p>
-      <h1>Ready to submit your study data</h1>
-      <p>The camera is off. Your results remain temporarily in this open tab until you submit. They are not stored in browser cache or persistent local storage.</p>
-      <button class="btn submit-primary" id="submitStudyData" type="button">SUBMIT STUDY DATA</button>
-      <p class="submission-note">Press the button above to send your session data to the research server. The button shows confirmation only after the server verifies receipt. Submitting is not automatic. Do not refresh or close this tab until you see confirmation or download a backup.</p>
+      <h1>Submitting your study data</h1>
+      <p>The camera is off. Please keep this page open until the server confirms receipt.</p>
+      <button class="btn submit-primary" id="submitStudyData" type="button" hidden aria-hidden="true">Submit study data</button>
+      <p class="submission-note">Submission starts automatically. Do not refresh or close this tab until a confirmed receipt appears.</p>
       <div class="upload-progress" id="uploadProgress" role="region" aria-label="Study submission progress" hidden>
         <strong id="uploadHeadline">Preparing submission…</strong>
         <progress id="uploadMeter" max="100" value="0" aria-label="Confirmed submission progress"></progress>
@@ -598,23 +552,22 @@
         <p class="upload-warning" id="uploadWarning">DO NOT CLOSE OR REFRESH THIS TAB until submission is confirmed.</p>
       </div>
       <p class="submit-result" id="doneSaved" role="status" aria-live="polite"></p>
-      <div class="row"><button class="btn ghost" id="retryUpload" hidden>Try submitting again</button><button class="btn ghost" id="doneDl">Download a backup</button></div>
+      <div class="row"><button class="btn" id="retryUpload" hidden>Retry data submission</button></div>
       <div class="sendbox"></div>
-      <p class="hint" style="margin-top:16px">Do not close or refresh this tab until you see a confirmed receipt or have saved a backup. Unsubmitted measurements are kept in memory only; closing this tab loses them. Calibration attempts, errors, and incomplete sessions are included in the submission.</p>
+      <p class="hint" style="margin-top:16px">Do not close or refresh this tab until you see a confirmed receipt. Unsubmitted measurements are kept in memory only; closing this tab can lose them. Calibration attempts, errors, and incomplete sessions are included in the submission.</p>
     </div></div>
   </section>
 
 </div>
 
-<div id="gazeDot"></div>
 <div id="camPark"><div id="camDock"></div></div>
 <div id="reposition" role="alertdialog" aria-labelledby="repoTitle"><div class="box">
   <h2 id="repoTitle">Move back into view</h2>
   <p class="hint" id="repoMsg"></p>
   <div class="camslot" id="camSlotRepo"></div>
   <p class="hint" id="repoLive"></p>
-  <p class="hint" id="repoRecovery" aria-live="polite">If positioning cannot recover, you can end the task and submit the data collected so far.</p>
-  <div class="row" style="justify-content:center;margin-top:12px"><button class="btn ghost small" type="button" id="repoStop">Stop task and see recovery options</button></div>
+  <p class="hint" id="repoRecovery" aria-live="polite">Return to your original position to continue.</p>
+  <div class="row" style="justify-content:center;margin-top:12px"><button class="btn" type="button" id="repoResume" hidden>Return to full screen</button></div>
  </div></div>
 <div id="instruct" role="dialog" aria-labelledby="iTitle"><div class="ibox">
   <p class="eyebrow" id="iEyebrow">Next</p>
@@ -694,11 +647,11 @@ const GRADE = { accDeg:[3,6], precDeg:[3,6], accPx:[110,220], precPx:[110,220] }
 const DIST_MIN = 50, DIST_MAX = 70;   // cm, webcam to eye: participants must sit in this range (checked on the tape measurement)
 const PASS_MIN_VALID = 75;            // observed callback validity, distinct from time coverage            // % of frames with a gaze estimate needed to pass the check
 // Independent validation uses 25 distinct positions (12 Brand-style + 13 extended) repeated in two randomized blocks (50 total).
-const CONSENT_VERSION = 'webgazer-consent-participant-id-2026-10-28-v1';
+const CONSENT_VERSION = 'webgazer-privacy-agreement-2026-11-13-v1';
 const CAM_W = 400;
 const QUALITY=GazeQuality.CFG;
 // This is the existing saved build label. It is metadata, not the current ZIP name.
-const STUDY_BUILD='webgazer-validation-3.3-50-validation';
+const STUDY_BUILD='webgazer-validation-3.4-automated-quadrants-timing';
 let activeTaskId='', activeTargetX=null, activeTargetY=null, activeAttempt=0, validationAttempts=[], runInterrupted=false;             // camera preview width (px)
 
 /* ============================================================
@@ -709,10 +662,20 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const now=()=>performance.now();
 const mean=a=>a.reduce((s,v)=>s+v,0)/a.length;
 const median=a=>{const s=[...a].sort((p,q)=>p-q);const m=s.length>>1;return s.length?(s.length%2?s[m]:(s[m-1]+s[m])/2):0;};
+// Callback interval statistics. Times are recorded at onGaze() using performance.now(),
+// NOT from camera frame presentation or an independently clocked WebGazer inference.
+// Standard deviation uses the population divisor (N), matching the existing result.
+function gazeTimingStats(intervals){
+  const n=intervals.length;
+  const im=n?mean(intervals):null;
+  return {interval_count:n,inter_sample_mean_ms:im,
+    inter_sample_sd_ms:n?Math.sqrt(mean(intervals.map(dt=>(dt-im)**2))):null,
+    effective_sampling_hz:im>0?1000/im:null};
+}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function px(fx,fy){return [Math.round(fx*innerWidth),Math.round(fy*innerHeight)];}
 
-const stages={setup:$('#s-setup'),dist:$('#s-dist'),cal:$('#s-cal'),val:$('#s-val'),res:$('#s-res'),search:$('#s-search'),sres:$('#s-sres'),exp:$('#s-exp'),done:$('#s-done')};
+const stages={setup:$('#s-setup'),dist:$('#s-dist'),cal:$('#s-cal'),val:$('#s-val'),res:$('#s-res'),search:$('#s-search'),sres:$('#s-sres'),done:$('#s-done')};
 const STEP={setup:0,dist:1,cal:2,val:3,res:4,search:4,sres:4,exp:4,done:5};
 const TASKS=new Set(['cal','val','search']);
 let curStage='setup';
@@ -731,7 +694,13 @@ function instruct(eyebrow,title,bodyHTML,buttons){
   $('#iEyebrow').textContent=eyebrow; $('#iTitle').textContent=title; $('#iBody').innerHTML=bodyHTML;
   const row=$('#iButtons'); row.innerHTML=''; let primary=null;
   buttons.forEach(b=>{ const el=document.createElement('button'); el.className='btn'+(b.primary?'':' ghost'); el.textContent=b.label;
-    el.onclick=async()=>{ $('#instruct').classList.remove('on'); if(b.fs) await enterFs(); b.fn(); };
+    el.onclick=async()=>{
+      if(b.fs && !(await enterFs())){
+        $('#iKey').textContent='Full screen is required. Allow full screen in your browser and press this button again.';
+        $('#iKey').style.display='block';return;
+      }
+      $('#instruct').classList.remove('on'); b.fn();
+    };
     row.appendChild(el); if(b.primary&&!primary) primary=el; });
   $('#iKey').style.display=primary?'':'none';
   $('#instruct').classList.add('on');
@@ -744,19 +713,20 @@ function instructOpen(){ return $('#instruct').classList.contains('on'); }
 /* ---- full screen ---- */
 let fsWanted=true;
 async function enterFs(){
-  if(!fsWanted||!document.fullscreenEnabled||document.fullscreenElement) return;
-  try{ await document.documentElement.requestFullscreen({navigationUI:'hide'}); await sleep(300); }catch(e){}
+  if(document.fullscreenElement)return true;
+  if(!document.fullscreenEnabled||typeof document.documentElement.requestFullscreen!=='function')return false;
+  try{await document.documentElement.requestFullscreen({navigationUI:'hide'});return !!document.fullscreenElement;}
+  catch(e){return false;}
 }
 
 /* ============================================================
    STATE
    ============================================================ */
-const gazeDot=$('#gazeDot');
-let latest=null, liveDot=false, collecting=false, curSamples=[], curNulls=[], aborted=false, runId=0;
+let latest=null, collecting=false, curSamples=[], curNulls=[], aborted=false, runId=0;
 let sx=null, sy=null;                          // gaze used for the check and on-screen results (raw or smoothed, per the setting)
 let ssx=null, ssy=null;                        // smoothed stream, always computed (SMOOTH_ALPHA), so both are recorded
 let emaAlpha=SMOOTHING?SMOOTH_ALPHA:1, kalmanOn=USE_KALMAN, soundOn=true, dispX=null, dispY=null;
-let sessionLog=[], recording=false, phase='setup', t0=0, sessionUnixStart=Date.now(), pid='anon', participantId='', experience='', consentRecord=null, studyVisit='pilot', unsaved=false;
+let sessionLog=[], recording=false, phase='setup', t0=0, sessionUnixStart=Date.now(), pid='anon', sessionNumber='', experience='', consentRecord=null, studyVisit='pilot', unsaved=false;
 let pxPerCm=null, distCm=null, distSource='camera estimate', anchorEstCm=null;
 let paused=false, pauseCount=0, calibrated=false, calRuns=0, checkRuns=[], passed=false, valKind='main', calViewport=null, viewportChanged=false;
 let calibrationAttemptCount=0, calibrationCompleted=false, calibrationHistory=[], calibrationPointsCollected=0, calibrationFailureReason=null, validationCompleted=false, pauseStartedAt=null;
@@ -766,6 +736,9 @@ let trackerOn=false, trackerHooked=false, modelReady=false, modelError=null;
 let camStream=null, camError=null, camFailed=false;
 let lastFaceMs=-1e9, faceInfo=null, liveDistCm=null, lensDistCm=null, faceLuma=null, frameLuma=null, lastLumaMs=0;
 let eyeHist=[];                                  // recent eye gaps (fraction of image width)
+let faceAnchor=null, faceDriftReason=null; // raw face geometry at the moment calibration starts
+let cameraFrameIntervals=[],cameraFrameMonitorStarted=false,cameraSamplingActive=false,cameraObservedFrameCount=0;
+let validationRunNumber=0,validationRuns=[],submissionStarted=false;
 let tapeWanted=ASK_TAPE, tapeState='pending', tape=null, distK=null, tapeOpen=false, anchorLensCm=null, impliedFov=null;
 let vision={usual:'',clearWithout:'',now:'',clearNow:''}, device={type:'',model:'',camType:'',webcam:''}, sysInfo={os:'',browser:'',arch:'',gpu:''}, camCount=null;
 
@@ -797,14 +770,12 @@ function onGaze(d,webgazerElapsedMs){
   const both={rx:d.x,ry:d.y,smx:ssx,smy:ssy,wgElapsedMs:webgazerElapsedMs};
   latest={x:sx,y:sy};
   dispX=(dispX==null)?sx:0.35*sx+0.65*dispX; dispY=(dispY==null)?sy:0.35*sy+0.65*dispY;
-  if(liveDot){gazeDot.style.left=dispX+'px';gazeDot.style.top=dispY+'px';}
   if(recording)logEvent('gaze',sx,sy,both);
   if(collecting)curSamples.push({t,gx:sx,gy:sy,...both});
   if(searchActive&&curTrial)curTrial.gaze.push({t,x:sx,y:sy,...both});
 }
 function pxToDeg(distPx){ if(!pxPerCm||!distCm)return null; const cm=distPx/pxPerCm; return 2*Math.atan((cm/2)/distCm)*180/Math.PI; }
-function setLiveDot(on){ liveDot=!!on; gazeDot.style.display=liveDot?'block':'none';
-  const b=$('#gazeToggle'); if(b){ b.textContent=liveDot?'Hide my gaze':'Show my gaze'; b.setAttribute('aria-pressed',liveDot?'true':'false'); } }
+function setLiveDot(){ /* Participant gaze visualization is disabled. */ }
 const faceOK=()=>now()-lastFaceMs<500;
 
 /* ============================================================
@@ -814,18 +785,18 @@ function setPanel(id){ document.querySelectorAll('#s-setup .panel').forEach(p=>p
   stages.setup.querySelector('.sheet').scrollTop=0; const h=$('#'+id+' h1'); if(h){h.setAttribute('tabindex','-1');h.focus({preventScroll:true});} }
 document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>setPanel(b.dataset.panel));
 $('#toDemo').onclick=async()=>{
-  participantId=$('#participantId').value.trim();
-  if(!/^[A-Za-z0-9_-]{3,40}$/.test(participantId) || !$('#consentAgree').checked){
-    $('#inviteErr').textContent='Please enter your assigned participant ID (3–40 letters, numbers, hyphens or underscores) and check the agreement box before continuing.';
+  if(!$('#consentAgree').checked){
+    $('#inviteErr').textContent='Please read the privacy information and check the agreement box to continue.';
     $('#inviteErr').classList.add('on'); return;
   }
   experience=radioVal('eyeTrackerExperience');
   if(!experience){$('#inviteErr').textContent='Please select Yes or No for previous eye tracker experience.';$('#inviteErr').classList.add('on');return;}
   try {
     const current=await StudyUpload.start(); // New anonymous session on each fresh visit. No browser-persistent study storage.
-    pid=current.session_id; studyVisit=current.visit||'pilot';
-    consentRecord={version:CONSENT_VERSION,agreed:true,participant_id:participantId,acknowledged_at:new Date().toISOString(),notice:'participant_webcam_and_gaze_data_notice'};
-    // Consent is batch zero, held in memory until final submission.
+    sessionNumber=current.session_number; pid=sessionNumber; studyVisit=current.visit||'pilot';
+    consentRecord={version:CONSENT_VERSION,agreed:true,session_number:sessionNumber,
+      acknowledged_at:new Date().toISOString(),notice:'participant_webcam_and_gaze_data_notice'};
+    // Acknowledgment is retained for study records; it is not a final submission gate.
     await StudyUpload.enqueue('consent',consentRecord,STUDY_BUILD);
     $('#inviteErr').classList.remove('on');setPanel('p-demo');
   } catch(e){
@@ -858,8 +829,8 @@ $('#toScreen').onclick=()=>{ readVision();
   const missing=!vision.usual||(!$('#visQWithout').hidden&&!vision.clearWithout)||(!$('#visQNow').hidden&&!vision.now)||!vision.clearNow;
   if(VISION_REQUIRED&&missing){ const e=$('#visErr'); e.innerHTML='<b>Please answer all the questions above.</b>'; e.classList.add('on'); return; }
   $('#visErr').classList.remove('on'); setPanel('p-screen'); };
-$('#optTape').checked=ASK_TAPE; $('#needTape').hidden=!ASK_TAPE; $('#tapeSkip').hidden=!TAPE_SKIP_ALLOWED;
-$('#needTapeWhat').textContent=TAPE_SKIP_ALLOWED?'and, if you have one, a tape measure or ruler':'and a tape measure or ruler'; $('#optSmooth').checked=SMOOTHING;
+$('#needTape').hidden=!ASK_TAPE; $('#tapeSkip').hidden=!TAPE_SKIP_ALLOWED;
+$('#needTapeWhat').textContent=TAPE_SKIP_ALLOWED?'and, if you have one, a tape measure or ruler':'and a tape measure or ruler';
 
 // computer and camera questions (not persisted between visits)
 const radioVal=n=>{ const r=document.querySelector(`input[name="${n}"]:checked`); return r?r.value:''; };
@@ -979,7 +950,7 @@ function onFaceFrame(pos,canvas,W,H){
     liveDistCm=(liveDistCm==null)?cm:liveDistCm+0.15*(cm-liveDistCm); }
   const small=Math.min(W,H)*0.66, bx=(W-small)/2, by=(H-small)/2;    // same central box WebGazer draws
   const inBox=p=>p[0]>bx&&p[0]<bx+small&&p[1]>by&&p[1]<by+small;
-  faceInfo={cx:(R[0]+L[0])/2/W, cy:(R[1]+L[1])/2/H, centred:inBox(R)&&inBox(L), t};
+  faceInfo={cx:(R[0]+L[0])/2/W, cy:(R[1]+L[1])/2/H, centred:inBox(R)&&inBox(L), t, gap:ipd/W, turn:wL>0?wR/wL:1};
   if(t-lastLumaMs>500){ lastLumaMs=t;
     const x=Math.min(R[0],L[0])-ipd*0.5, y=Math.min(R[1],L[1])-ipd*0.7;
     faceLuma=meanLuma(canvas,x,y,ipd*2,ipd*1.9); frameLuma=meanLuma(canvas,0,0,W,H); }
@@ -995,6 +966,33 @@ async function dockCamera(){
   camDock.style.width=CAM_W+'px'; camDock.style.height=h+'px';
   ['webgazerVideoFeed','webgazerFaceOverlay','webgazerFaceFeedbackBox'].forEach(id=>{const e=document.getElementById(id); if(e) camDock.appendChild(e);});
   if(v&&v.play) v.play().catch(()=>{});
+  startCameraFrameMonitor(v);
+}
+function startCameraFrameMonitor(v){
+  if(cameraFrameMonitorStarted||!v||typeof v.requestVideoFrameCallback!=='function')return;
+  cameraFrameMonitorStarted=true;
+  let previous=null;
+  const tick=(time,meta)=>{
+    if(cameraSamplingActive){
+      cameraObservedFrameCount++;
+      const t=Number.isFinite(meta?.presentationTime)?meta.presentationTime:time;
+      if(previous!=null && t>previous && t-previous<1500){
+        cameraFrameIntervals.push({previous_session_t_ms:previous-t0,
+          current_session_t_ms:t-t0,interval_ms:t-previous});
+      }
+      previous=t;
+    } else previous=null;
+    if(v.readyState>0 && camStream?.active)v.requestVideoFrameCallback(tick);
+  };
+  v.requestVideoFrameCallback(tick);
+}
+function cameraTimingStats(){
+ const stats=gazeTimingStats(cameraFrameIntervals.map(x=>x.interval_ms));
+ return {observed_frame_count:cameraObservedFrameCount,
+  observed_frame_interval_mean_ms:stats.inter_sample_mean_ms,
+  observed_frame_interval_sd_ms:stats.inter_sample_sd_ms,
+    observed_camera_fps:stats.interval_count>=3?stats.effective_sampling_hz:null,
+  observed_camera_fps_method:cameraFrameMonitorStarted?'requestVideoFrameCallback presentationTime':'not_supported'};
 }
 function placeCam(slotId){
   const slot=slotId?document.getElementById(slotId):$('#camPark');
@@ -1023,6 +1021,7 @@ function explainCamError(err){
 async function startTracker(){
   const btn=$('#startBtn');
   readSetup();
+  try{window.__ac=window.__ac||new (window.AudioContext||window.webkitAudioContext)();if(window.__ac.state==='suspended')await window.__ac.resume();}catch(e){console.warn('Unable to initialize audio chime',e);}
   if(!StudyUpload.status.ready)return camFail('Study session not initialized','Return to the first screen and start again.');
   if(trackerOn){ runDistance(); return; }
   btn.disabled=true;
@@ -1070,12 +1069,12 @@ async function startTracker(){
   runDistance();
 }
 function readSetup(){
-  participantId=$('#participantId').value.trim(); experience=radioVal('eyeTrackerExperience');
+  experience=radioVal('eyeTrackerExperience');
   const cardPx=parseFloat($('#cardRange').value), cardCm=parseFloat(String($('#cardCm').value).replace(',','.'));
   pxPerCm=(cardPx>0&&cardCm>0)?cardPx/cardCm:null;
-  emaAlpha=$('#optSmooth').checked?SMOOTH_ALPHA:1; kalmanOn=USE_KALMAN; tapeWanted=$('#optTape').checked; readDevice(); readVision(); readDemo();
+  emaAlpha=SMOOTHING?SMOOTH_ALPHA:1; kalmanOn=USE_KALMAN; tapeWanted=ASK_TAPE; readDevice(); readVision(); readDemo();
   if(window.webgazer) window.applyKalmanFilter=kalmanOn;
-  soundOn=$('#optSound').checked; fsWanted=$('#optFs').checked;
+  soundOn=true; fsWanted=true;
 }
 $('#startBtn').onclick=startTracker;
 $('#reloadBtn').onclick=()=>location.reload();
@@ -1155,6 +1154,7 @@ $('#distContinue').onclick=()=>{
     distK=null; impliedFov=null; liveDistCm=lensDistCm;
     anchorEstCm=anchorLensCm; distCm=anchorEstCm; distSource='camera estimate';
   }
+  faceAnchor=faceInfo?{cx:faceInfo.cx,cy:faceInfo.cy,gap:faceInfo.gap,turn:faceInfo.turn}:null;
   placeCam(null); showCalIntro();
 };
 
@@ -1208,41 +1208,58 @@ function chime(ac){                      // soft two-note chime: sine tones with
     o.connect(g); g.connect(ac.destination); o.start(t+dt); o.stop(t+dt+0.75); });
 }
 let alertTimer=null;
-function startAlert(){ if(!soundOn||alertTimer) return;
+function startAlert(){ if(alertTimer) return;
   try{ if(!window.__ac) window.__ac=new (window.AudioContext||window.webkitAudioContext)();
     const ac=window.__ac; if(ac.state==='suspended') ac.resume();
     chime(ac); alertTimer=setInterval(()=>chime(ac),3000);   // once when the task pauses, then every 3 s
   }catch(e){} }
 function stopAlert(){ clearInterval(alertTimer); alertTimer=null; }
 let pauseWhy=null, driftSince=null, okSince=null;
+function relativeFaceDrift(){
+  if(!faceAnchor||!faceInfo||!faceAnchor.gap||!faceInfo.gap)return {bad:false,reason:null};
+  const distanceRatio=faceAnchor.gap/faceInfo.gap; // a farther camera makes eye distance smaller
+  const centreMovement=Math.hypot(faceInfo.cx-faceAnchor.cx,faceInfo.cy-faceAnchor.cy);
+  const turnRatio=faceAnchor.turn>0?faceInfo.turn/faceAnchor.turn:1;
+  if(distanceRatio>1.16||distanceRatio<0.86)return {bad:true,reason:'distance',distanceRatio};
+  if(centreMovement>0.18)return {bad:true,reason:'position',centreMovement};
+  if(turnRatio>1.55||turnRatio<0.65)return {bad:true,reason:'head_turn',turnRatio};
+  return {bad:false,reason:null,distanceRatio,centreMovement,turnRatio};
+}
 function beginPause(why){ paused=true; pauseCount++; pauseWhy=why; okSince=null; pauseStartedAt=now();
   placeCam('camSlotRepo'); $('#reposition').classList.add('on'); startAlert(); logEvent('pause',0,0); updatePauseText(); }
 function endPause(){ if(!paused) return; paused=false; pauseWhy=null; driftSince=null; pauseStartedAt=null;
   $('#reposition').classList.remove('on'); placeCam(null); stopAlert(); logEvent('resume',0,0); }
 function updatePauseText(){
   const d=liveDistCm!=null?Math.round(liveDistCm):null;
-  if(!faceOK()){ $('#repoTitle').textContent='Move back into view';
+  if(pauseWhy==='fullscreen'){ $('#repoTitle').textContent='Return to full screen';
+    $('#repoMsg').textContent='Full screen is required to continue. Select the button below.'; }
+  else if(!faceOK()){ $('#repoTitle').textContent='Move back into view';
     $('#repoMsg').textContent='The camera lost your face. Look at the screen with your eyes inside the box. The task carries on by itself.'; }
+  else if(relativeFaceDrift().bad){ $('#repoTitle').textContent='Move back into your original position';
+    $('#repoMsg').textContent='The camera detected a change in your head position or size. Move the screen and your head back to the same position used for calibration.'; }
   else if(anchorEstCm!=null && d!=null && Math.abs(d-anchorEstCm)>DIST_TOL-2){
     const closer=d<anchorEstCm; $('#repoTitle').textContent=closer?'You\u2019ve moved closer':'You\u2019ve moved back';
     $('#repoMsg').textContent=(closer?'Sit back':'Come closer')+` to about ${anchorEstCm} cm, where you calibrated. The task carries on by itself.`; }
   else { $('#repoTitle').textContent='Hold still\u2026'; $('#repoMsg').textContent='That\u2019s it. Carrying on in a moment.'; }
   $('#repoLive').textContent=!faceOK()?'Looking for your face\u2026':(d!=null&&anchorEstCm!=null?`Now about ${d} cm \u00b7 target ${anchorEstCm} cm`:'');
-  $('#repoRecovery').textContent=pauseStartedAt!=null&&now()-pauseStartedAt>45000?'Positioning has been interrupted for more than 45 seconds. If you cannot continue, stop this task and submit the records collected so far.':'If positioning cannot recover, you can stop this task and still submit the data collected so far.';
+  $('#repoRecovery').textContent='Hold your original position; the task will resume automatically once it is stable.';
+  $('#repoResume').hidden=pauseWhy!=='fullscreen';
 }
 setInterval(()=>{
   const active=trackerOn && recording && (curStage==='cal'||curStage==='val'||curStage==='search') && !aborted && !instructOpen();
   if(!active){ if(paused) endPause(); driftSince=null; return; }
   const t=now(), lost=t-lastFaceMs>1500;
   const drift=(anchorEstCm!=null&&liveDistCm!=null)?liveDistCm-anchorEstCm:0;
+  const geometry=relativeFaceDrift();
   if(Math.abs(drift)>DIST_TOL){ if(driftSince==null) driftSince=t; } else driftSince=null;
-  if(!paused){ if(lost||(driftSince!=null&&t-driftSince>1500)) beginPause(lost?'lost':'drift'); return; }
+  if(!paused){ if(!document.fullscreenElement){beginPause('fullscreen');return;}
+    if(lost||(driftSince!=null&&t-driftSince>1000)||geometry.bad) beginPause(lost?'lost':geometry.reason||'drift'); return; }
   updatePauseText();
-  const good=faceOK() && Math.abs(drift)<=DIST_TOL-2;
+  const good=!!document.fullscreenElement && faceOK() && Math.abs(drift)<=DIST_TOL-2 && !geometry.bad;
   if(good){ if(okSince==null) okSince=t; if(t-okSince>700) endPause(); } else okSince=null;
 },250);
-async function gate(){ if(!paused) return false; while(paused&&!aborted) await sleep(120); return true; }   // The visible Stop task button lets participants leave a prolonged pause.
-$('#repoStop').onclick=()=>abortTask('The camera could not recover a stable face position');
+async function gate(){ if(!paused) return false; while(paused&&!aborted) await sleep(120); return true; }   // Wait for the face to return to the calibrated position.
+$('#repoResume').onclick=async()=>{if(await enterFs())updatePauseText();else $('#repoMsg').textContent='Please allow full screen in the browser to resume.';};
 
 /* ============================================================
    3 · CALIBRATION (the dot moves by itself; nothing to click)
@@ -1261,8 +1278,8 @@ async function countdown(st,my,label){
 function showCalIntro(){
   phase='instructions';
   instruct('Step 3 of 5','Follow the dot',
-    `<p>A dot appears in ${CAL.length} places, one after another. Keep your eyes on it until it moves on. It moves by itself, so there\u2019s nothing to click. Each point is shown for 2 seconds, followed by a short blank screen. This takes about 30 seconds.</p><p class="hint">Up next: the independent accuracy check (about 1 minute). Stay where you are: keep your head still and at the same distance. Press Esc if you need to stop.</p>`,
-    [{label:'Start calibration',primary:true,fs:true,fn:runCalibration},{label:'Back to camera check',fn:runDistance}]);
+    `<p>A dot appears in ${CAL.length} places, one after another. Keep your eyes on it until it moves on. It moves by itself, so there\u2019s nothing to click. Each point is shown for 2 seconds, followed by a short blank screen. This takes about 30 seconds.</p><p class="hint">Up next: the independent accuracy check (about 1 minute). Stay where you are: keep your head still and at the same distance.</p>`,
+    [{label:'Start calibration',primary:true,fs:true,fn:runCalibration}]);
 }
 // Show calibration targets and send their known positions to WebGazer for learning.
 async function runCalibration(){
@@ -1310,12 +1327,9 @@ async function runCalibration(){
       logEvent('calibration_point_failed',x,y);
       calibrated=false; phase='instructions';
       queueCheckpoint('task_aborted').catch(()=>{});
-      instruct('Calibration interrupted','Your calibration data were retained',
-        '<p>Not enough training data were collected at this point. We recorded the unsuccessful attempt. You may retry, continue to the independent accuracy assessment using the partial calibration, or finish and submit incomplete data.</p>',
-        [{label:'Restart calibration',primary:true,fs:true,fn:runCalibration},
-         {label:'Continue with partial calibration',fs:true,fn:continuePartialCalibration},
-         {label:'Finish early and go to submission',fn:finish},
-         {label:'Back to camera check',fn:runDistance}]);
+      if(calibrationAttemptCount<2){
+        (async()=>{if(await gate())await sleep(RESUME_SETTLE);if(!aborted)runCalibration();})();
+      }else{continuePartialCalibration();}
       return;
     }
     calibrationPointsCollected++;
@@ -1324,7 +1338,7 @@ async function runCalibration(){
   if(stop()) return;
   activeTaskId='';activeTargetX=null;activeTargetY=null;activeAttempt=0;
   hud('cal','Done',1); calibrated=true; calibrationCompleted=true; calRuns++; passed=false; calibrationHistory.push({attempt:calibrationAttemptCount,completed:true,points_collected:CAL.length,stopped_at_point:null,reason:null});logEvent('cal_done',0,0);
-  showValIntro('Calibration complete. Now we will measure accuracy at separate locations.');
+  showValIntro();
 }
 
 // Partial training is still an observed calibration failure. Never label it as successful.
@@ -1334,7 +1348,7 @@ function continuePartialCalibration(){
   calibrated=true; calibrationCompleted=false; passed=false; validationCompleted=false;
   logEvent('calibration_partial_continued',null,null);
   queueCheckpoint('task_aborted').catch(()=>{});
-  showValIntro('Calibration did not finish. Your partial training and failure status will be saved. The independent accuracy assessment can still measure how inaccurate the predictions are.');
+  showValIntro();
 }
 
 /* ============================================================
@@ -1355,13 +1369,10 @@ const VALIDATION_LOCATIONS=[...BRAND_VALIDATION_LOCATIONS,...EXTENDED_VALIDATION
 const VALIDATION_PASSES=2;
 const DWELL=2000, ITI=250, PRUNE=QUALITY.analysisStartMs;
 const FIND_MS=0;      // optional extra time before recording starts (not in Brand); 0 = Brand's timing
-function showValIntro(passedMsg){
-  if(!calibrated){ showCalIntro(); return; }
-  phase='instructions';
-  instruct('Step 4 of 5','Accuracy and precision assessment',
-    (passedMsg?`<p class="okbox" style="margin:0 0 12px">${esc(passedMsg)}</p>`:'')+
-    '<p>Look at each cross as it appears. We test 25 different screen positions twice in separate randomized blocks (50 presentations). The first 12 locations follow a 4 by 3 Brand-style layout; 13 additional locations improve screen coverage. Each cross appears for 2 seconds, followed by 250 ms blank. Do not click. The first 100 ms are excluded from the accuracy analysis.</p><p class="hint">Time for this step: about 2 minutes, excluding pauses. Next is a short results screen, then 10 practice rounds (about 2–4 minutes). Keep your head still.</p>',
-    [{label:'Start the 50-presentation assessment',primary:true,fs:true,fn:()=>runValidation('main')},{label:'Recalibrate first',fn:showCalIntro}]);
+function showValIntro(){
+  if(!calibrated){runCalibration();return;}
+  // No participant-facing pass/fail, recalibration choice, or interim results.
+  runValidation('main');
 }
 async function dwell(){
   const pc=pauseCount, tOn=now();
@@ -1376,7 +1387,7 @@ async function dwell(){
 }
 // Collect a new set of gaze samples at known targets to check prediction quality.
 async function runValidation(kind){
-  kind='main'; valKind='main';
+  kind='main'; valKind='main'; validationRunNumber++; cameraFrameIntervals=[];cameraObservedFrameCount=0;cameraSamplingActive=true;
   if(!calibrated){showCalIntro();return;}
   aborted=false;runInterrupted=false;validationCompleted=false;lastSummary=null;passed=false;const my=++runId;const stop=()=>aborted||my!==runId;
   phase='validate'; show('val');placeCam(null);setLiveDot(false);
@@ -1392,7 +1403,8 @@ async function runValidation(kind){
     points.push(...block);
   }
   hud('val','Get ready',0);await countdown(st,my,'Look at the cross');if(stop())return;
-  const results=[],resultsRaw=[],resultsSm=[],intervals=[];let nGot=0,nNull=0,interruptedN=0;
+  const results=[],resultsRaw=[],resultsSm=[],intervals=[],timingPoints=[],timingIntervals=[];
+  let nGot=0,nNull=0,interruptedN=0;
   const pc0=pauseCount;
   for(let i=0;i<points.length;i++){
     const [x,y]=px(points[i][0],points[i][1]);const locationId=points[i][2],validationPass=points[i][3],validationGroup=points[i][4];let r=null,tries=0;
@@ -1415,7 +1427,19 @@ async function runValidation(kind){
     // Retain gaze observations from interrupted points; flag them unusable for the primary quality summary.
     const kept=r.samples.filter(s=>s.t-r.tOn>=PRUNE&&s.t-r.tOn<DWELL);
     const invalid=r.nulls.filter(n=>n.t-r.tOn>=PRUNE&&n.t-r.tOn<DWELL);
-    for(let k=1;k<kept.length;k++)intervals.push(kept[k].t-kept[k-1].t);
+    // Only form intervals WITHIN a target. Never bridge the blank screen or the
+    // next validation target. A missing/invalid prediction can increase the gap.
+    const pointIntervals=[];
+    for(let k=1;k<kept.length;k++){
+      const dt=kept[k].t-kept[k-1].t;
+      if(Number.isFinite(dt)&&dt>0){
+        intervals.push(dt);
+        pointIntervals.push({point:i+1,location_id:locationId,validation_pass:validationPass,
+          validation_group:validationGroup,interval_index:k,
+          previous_session_t_ms:kept[k-1].t-t0,current_session_t_ms:kept[k].t-t0,
+          interval_ms:dt});
+      }
+    }
     nGot+=kept.length;nNull+=invalid.length;
     const measured=GazeQuality.measure(kept.map(s=>({t:s.t-r.tOn,x:s.gx,y:s.gy})),{x,y},
          {analysisStartMs:PRUNE,analysisEndMs:DWELL});
@@ -1429,6 +1453,14 @@ async function runValidation(kind){
       invalidCallbacks:invalid.length,attempts:tries,interrupted:r.interrupted
     });
     results.push(stats);
+    // Save both the summary and every pair of timestamps supporting the mean.
+    // "usable" is retained for filtering; the historic overall mean includes
+    // *all* validation targets, including interrupted or quality-excluded ones.
+    timingPoints.push({point:i+1,location_id:locationId,validation_pass:validationPass,
+      validation_group:validationGroup,valid_callback_n:kept.length,
+      invalid_callback_n:invalid.length,interrupted:r.interrupted,usable:measured.usable,
+      ...gazeTimingStats(pointIntervals.map(x=>x.interval_ms))});
+    for(const row of pointIntervals)timingIntervals.push({...row,usable:measured.usable,interrupted:r.interrupted});
     const rawPoint=pointStats(i+1,x,y,kept.map(p=>({t:p.t,gx:p.rx,gy:p.ry})));
     const smPoint=pointStats(i+1,x,y,kept.map(p=>({t:p.t,gx:p.smx,gy:p.smy})));
     rawPoint.usable=measured.usable;smPoint.usable=measured.usable;
@@ -1439,8 +1471,9 @@ async function runValidation(kind){
   activeTaskId='';activeTargetX=null;activeTargetY=null;activeAttempt=0;
   if(stop())return;
   hud('val','Done',1);logEvent('val_done',0,0);
-  const data={intervals,nGot,nNull,interruptedN,pauses:pauseCount-pc0,resultsRaw,resultsSm};
-  computeResults(results,data);
+  const data={intervals,timingPoints,timingIntervals,nGot,nNull,interruptedN,
+    pauses:pauseCount-pc0,resultsRaw,resultsSm};
+  cameraSamplingActive=false;computeResults(results,data);
 }
 function streamSummary(rs){ const ok=rs.filter(r=>r.usable!==false&&r.accPx!=null), m=k=>ok.length?mean(ok.map(r=>r[k])):null, D=v=>v!=null?pxToDeg(v):null;
   const o={accPx:m('accPx'),precPx:m('precPx'),accX:m('accX'),accY:m('accY'),precX:m('precX'),precY:m('precY')};
@@ -1458,38 +1491,17 @@ function pointStats(i,x,y,s){
 
 /* ---- stopping a task: Esc, leaving full screen, switching tabs ---- */
 function abortTask(reason){
-  if(!TASKS.has(curStage)||aborted) return;
-  const where=curStage; aborted=true; runId++; collecting=false; searchActive=false;
-  logEvent('participant_task_abort',null,null);
-  if(where==='cal' && !calibrationHistory.some(r=>r.attempt===calibrationAttemptCount)){
-    calibrationFailureReason='task_stopped'; calibrationCompleted=false;
-    calibrationHistory.push({attempt:calibrationAttemptCount,completed:false,points_collected:calibrationPointsCollected,stopped_at_point:activeTaskId||null,reason:calibrationFailureReason});
-  }
-  if(where==='val'){validationCompleted=false;lastSummary=null;passed=false;}
-  validationAttempts.push({kind:where+'_abort',point:null,attempt:activeAttempt,interrupted:true,elapsedMs:null,callbacksValid:null,callbacksInvalid:null});
-  queueCheckpoint('task_aborted').catch(()=>{});
-  endPause(); stopAlert();
-  clearStage(stages.cal); clearStage(stages.val);
-  if(where==='search'){
-    $('#searchArea').innerHTML=''; phase='instructions';
-    instruct('Search stopped','Your recorded gaze data are retained',
-      `<p>${esc(reason||'The search task stopped')}. You may finish and submit the incomplete session. Recorded trial data and interruption reasons will be saved.</p>`,
-      [{label:'Finish early and go to submission',primary:true,fn:finish},
-       {label:'Return to accuracy results',fn:()=>lastSummary?show('res'):finish()}]);
-    return;
-  }
-  const btns=[];
-  if(where==='val'&&calibrated) btns.push({label:'Restart the accuracy task',primary:true,fs:true,fn:()=>runValidation('main')});
-  btns.push({label:where==='cal'||!calibrated?'Restart calibration':'Recalibrate',primary:!btns.length,fs:true,fn:runCalibration});
-  if(where==='cal')btns.push({label:'Continue with partial calibration',fs:true,fn:continuePartialCalibration});
-  if(where==='val')btns.push({label:'Continue to visual search with incomplete validation',fn:showSearchIntro});
-  btns.push({label:'Finish early and go to submission',fn:finish});
-  btns.push({label:'Back to camera check',fn:runDistance});
-  phase='instructions';
-  instruct('Stopped',where==='cal'?'Calibration stopped':'Check stopped',`<p>${esc(reason||'You stopped the task')}. Choose how to carry on.</p>`,btns);
+ if(!TASKS.has(curStage)||aborted)return;
+ aborted=true;runId++;collecting=false;searchActive=false;
+ logEvent('task_abort',null,null);validationAttempts.push({kind:curStage+'_abort',reason,
+  attempt:activeAttempt,task_id:activeTaskId,interrupted:true});
+ queueCheckpoint('task_aborted').catch(()=>{});
+ endPause();stopAlert();clearStage(stages.cal);clearStage(stages.val);
+ // No early-finish or recalibration menu. Preserve incomplete records automatically.
+ finish();
 }
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&(curStage==='cal'||curStage==='val')&&!instructOpen()) abortTask('You pressed Esc'); });
-document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement&&fsWanted&&TASKS.has(curStage)&&!instructOpen()) abortTask('Full screen was closed'); });
+// Escape may leave browser fullscreen; allow participant to restore it.
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&TASKS.has(curStage)&&!instructOpen()&&!paused)beginPause('fullscreen');});
 document.addEventListener('visibilitychange',()=>{ if(document.hidden&&TASKS.has(curStage)&&!instructOpen()) abortTask('You switched to another tab or window'); });
 addEventListener('resize',()=>{ if(calibrated&&calViewport&&(innerWidth!==calViewport.w||innerHeight!==calViewport.h)&&(curStage==='val'||curStage==='cal'||curStage==='search')){viewportChanged=true;runInterrupted=true; if(curStage==='search')abortTask('Screen dimensions changed after calibration');} });
 
@@ -1512,8 +1524,11 @@ function computeResults(results,st){
   const ax={accX:avg('accX'),accY:avg('accY'),precX:avg('precX'),precY:avg('precY')};
   ax.accXY=ax.accX!=null?(ax.accX+ax.accY)/2:null; ax.precXY=ax.precX!=null?(ax.precX+ax.precY)/2:null;   // Brand-style: averaged over x and y
   Object.keys(ax).forEach(k=>{ ax[k+'Deg']=D(ax[k]); });
-  let hz=null,im=null,isd=null;
-  if(st.intervals.length>2){ im=mean(st.intervals); isd=Math.sqrt(mean(st.intervals.map(v=>(v-im)**2))); hz=1000/im; }
+  const timing=gazeTimingStats(st.intervals);
+  // Preserve the existing display rule: do not report a pooled rate with <3 intervals.
+  const im=timing.interval_count>2?timing.inter_sample_mean_ms:null;
+  const isd=timing.interval_count>2?timing.inter_sample_sd_ms:null;
+  const hz=timing.interval_count>2?timing.effective_sampling_hz:null;
   const validity=(st.nGot+st.nNull)>0?100*st.nGot/(st.nGot+st.nNull):null;
   const coverage=mean(results.map(r=>r.coveragePct||0));
   const screens=GazeQuality.screenCheck(results.map(r=>({usable:r.usable,reasons:r.reasons,accuracyMeanPx:r.accPx,accuracyDeg:r.accPx!=null&&distSource==='tape measure'?pxToDeg(r.accPx):null})),{minUsablePoints:results.length});
@@ -1521,6 +1536,21 @@ function computeResults(results,st){
   if(st.interruptedN>0){screens.pass=false;screens.reasons.push('interrupted_validation_point');}
   if(viewportChanged){screens.pass=false;screens.reasons.push('viewport_changed');}
   const track=camStream&&camStream.getVideoTracks()[0], set=track&&track.getSettings?track.getSettings():{};
+  // This is the webcam track's *reported setting*, not an observed webcam FPS.
+  const cameraReportedFps=Number.isFinite(set.frameRate)&&set.frameRate>0?set.frameRate:null;
+  const cameraStats=cameraTimingStats();
+  const samplingTiming={interval_count:timing.interval_count,
+    inter_sample_mean_ms:im,inter_sample_sd_ms:isd,effective_sampling_hz:hz,
+    valid_callback_n:st.nGot,invalid_callback_n:st.nNull,
+    camera_reported_frame_rate_fps:cameraReportedFps,...cameraStats,
+    frame_timing_scope:'video frames observed during each validation run',
+    camera_frame_rate_source:'MediaStreamTrack.getSettings().frameRate',
+    gaze_timestamp_source:'performance.now() sampled at WebGazer onGaze callback',
+    interval_scope:'consecutive valid gaze callbacks within each validation target only',
+    interval_inclusion:'all validation targets, including unusable/interrupted targets',
+    validation_target_duration_ms:DWELL,excluded_initial_target_ms:PRUNE,
+    interval_sd_divisor:'N (population SD)',sampling_rate_formula:'1000 / mean_interval_ms',
+    inference_frame_rate_independently_measured:false};
   const streams={raw:streamSummary(st.resultsRaw||[]),smoothed:streamSummary(st.resultsSm||[])};
   const passSummaries=[];
   for(let p=1;p<=VALIDATION_PASSES;p++){
@@ -1532,10 +1562,14 @@ function computeResults(results,st){
       precision_rms_px:m('precPx'),precision_rms_deg:m('precPx')==null?null:pxToDeg(m('precPx'))});
   }
   validationCompleted=true;
-  lastSummary={pid,accPx,precPx,accDeg,precDeg,ax,streams,passSummaries,resultsRaw:st.resultsRaw||[],resultsSm:st.resultsSm||[],hz,im,isd,validity,results,coverage,screenQuality:screens,interruptedN:st.interruptedN,pxPerCm,distCm,distSource,anchorEstCm,
+  lastSummary={pid,accPx,precPx,accDeg,precDeg,ax,streams,passSummaries,resultsRaw:st.resultsRaw||[],resultsSm:st.resultsSm||[],
+    hz,im,isd,sampling_timing:samplingTiming,validation_timing:st.timingPoints||[],
+    validation_intervals:st.timingIntervals||[],camera_intervals:cameraFrameIntervals.slice(),
+    validation_run_number:validationRunNumber,validity,results,coverage,screenQuality:screens,interruptedN:st.interruptedN,pxPerCm,distCm,distSource,anchorEstCm,
     calibration_completed:calibrationCompleted,calibration_attempts:calibrationAttemptCount,calibration_points_collected:calibrationPointsCollected,calibration_failure_reason:calibrationFailureReason,calibration_history:calibrationHistory.slice(),validation_completed:true,
     screenW:innerWidth,screenH:innerHeight,pauses:st.pauses,calRuns,viewportChanged,fullscreen:!!document.fullscreenElement,
-    camLabel:track?track.label:'',camRes:set.width?`${set.width}x${set.height}`:'',camFps:set.frameRate?Math.round(set.frameRate):'',nGot:st.nGot};
+    camLabel:track?track.label:'',camRes:set.width?`${set.width}x${set.height}`:'',
+    camFps:cameraReportedFps??'',nGot:st.nGot};
   const f=(v,d=0)=>v==null?'\u2014':v.toFixed(d);
   const [ga,ca,sa]=accDeg!=null?grade(accDeg,GRADE.accDeg):grade(accPx,GRADE.accPx);
   const [gp,cp,sp]=precDeg!=null?grade(precDeg,GRADE.precDeg):grade(precPx,GRADE.precPx);
@@ -1574,8 +1608,17 @@ function computeResults(results,st){
   if(passSummaries.length>1)bits.push(`Pass 1: ${passSummaries[0].accuracy_mean_px==null?'—':passSummaries[0].accuracy_mean_px.toFixed(0)+' px'}; pass 2: ${passSummaries[1].accuracy_mean_px==null?'—':passSummaries[1].accuracy_mean_px.toFixed(0)+' px'}.`);
   bits.push(`Without smoothing: accuracy ${sd(streams.raw,'accPx')}, precision ${sd(streams.raw,'precPx')}. With smoothing: accuracy ${sd(streams.smoothed,'accPx')}, precision ${sd(streams.smoothed,'precPx')}. Both are saved.`);
   $('#resNote').textContent=bits.join(' ');
-  show('res'); placeCam(null);
-  queueCheckpoint('validation_complete').catch(()=>{});
+  validationRuns.push({validation_run_number:validationRunNumber,calibration_attempts:calibrationAttemptCount,
+    quality_passed:passed,accuracy_px:accPx,precision_px:precPx,
+    effective_sampling_hz:hz,camera_reported_frame_rate_fps:cameraReportedFps,
+    observed_camera_fps:cameraStats.observed_camera_fps});
+  lastSummary.validation_runs=validationRuns.slice();
+  queueCheckpoint('validation_complete').then(()=>{
+    if(!passed && calibrationAttemptCount<2){
+      // One automatic recalibration at most: two calibration attempts in total.
+      runCalibration();
+    } else showSearchIntro();
+  }).catch(()=>{if(!passed && calibrationAttemptCount<2)runCalibration();else showSearchIntro();});
 }
 function drawMap(results){ const cv=$('#map'); cv.height=Math.round(cv.width*innerHeight/innerWidth);
   const c=cv.getContext('2d'),W=cv.width,H=cv.height,kx=W/innerWidth,ky=H/innerHeight;
@@ -1589,18 +1632,9 @@ function drawMap(results){ const cv=$('#map'); cv.height=Math.round(cv.width*inn
 /* ============================================================
    6 · LAUNCHER + FINISH
    ============================================================ */
-function renderExperiments(){ const list=$('#expList'),intro=$('#expIntro');
-  if(!EXPERIMENTS.length){ intro.textContent='This ZIP is a standalone validation experiment. The integrated visual search task is on the results screen.';
-    list.innerHTML='<p class="hint">Add them to the EXPERIMENTS list at the top of the script (a name and a URL each). Each experiment runs its own WebGazer, so it needs its own calibration.</p>'; return; }
-  intro.textContent='Validation completed. External web pages cannot reuse this calibration; any separately opened eye tracking task MUST start and validate its own tracker.';
-  list.innerHTML=EXPERIMENTS.map((e,i)=>`<div class="exp"><div><div class="name">${esc(e.name)}</div><div class="u">${esc(e.url)}</div></div><button class="btn" data-exp="${i}">Open</button></div>`).join('');
-  list.querySelectorAll('[data-exp]').forEach(b=>b.onclick=()=>{
-    if(confirm('This separate page will NOT inherit WebGazer calibration. Only continue if the destination calibrates and validates the webcam again. Open it in a separate tab?'))
-      window.open(EXPERIMENTS[+b.dataset.exp].url,'_blank','noopener,noreferrer');
-  });
-}
-// Turn off the camera and save the last data checkpoint before showing Submit.
+// Turn off the camera, finalize the checkpoints, and submit automatically.
 async function finish(){
+  if(submissionStarted)return;submissionStarted=true;
   try{ webgazer.pause(); }catch(e){}
   try{ if(camStream) camStream.getTracks().forEach(t=>t.stop()); }catch(e){}
   recording=false; trackerOn=false; placeCam(null);
@@ -1614,20 +1648,20 @@ async function finish(){
       await queueKinematics();
       await queueCheckpoint(completedTask?'finish':'incomplete_finish');
     }
-    $('#doneSaved').textContent=StudyUpload.configured?(completedTask?'Your complete session is ready to submit. Nothing has been sent to the research server yet.':'This session is marked INCOMPLETE because calibration, validation, or search was unfinished. Collected gaze and failure records are preserved. Nothing has been sent yet.'):
-      'Local pilot mode: no research server is configured. Use Download a backup to save the data before closing the tab.';
-    $('#submitStudyData').disabled=!StudyUpload.configured;
+    if(!StudyUpload.configured)throw new Error('No study server configured. Automatic data submission is unavailable.');
+    await submitStudyData();
   }catch(e){
-    $('#doneSaved').textContent='Could not prepare submission: '+e.message+'. Download a backup now. Do not close the page.';
+    $('#doneSaved').textContent='Could not submit data: '+e.message+'. Keep this page open and retry.';
+    $('#retryUpload').hidden=false;
   }
   renderSend();
 }
-// Only this final action sends the saved batches to the research server.
+// This internal function sends saved batches automatically after the pipeline.
 async function submitStudyData(){
   const btn=$('#submitStudyData');
-  if(!StudyUpload.configured){$('#doneSaved').textContent='No research server is configured. Download a backup.';return;}
+  if(!StudyUpload.configured){$('#doneSaved').textContent='No research server is configured. Please contact the study team.';return;}
   btn.disabled=true; $('#retryUpload').hidden=true;
-  $('#doneDl').disabled=true;
+
   $('#uploadProgress').hidden=false;
   $('#uploadHeadline').textContent='Connecting securely to the study server…';
   $('#uploadMeter').value=0;
@@ -1637,260 +1671,28 @@ async function submitStudyData(){
     if(!StudyUpload.status.ready)throw new Error('Study session not ready. Open your original study link and try again.');
     const ack=await StudyUpload.complete();
     if(ack && ack.status==='acknowledged'){
-      unsaved=false;btn.textContent='DATA SUBMITTED ✓';$('#doneDl').disabled=false;
-      $('#doneSaved').textContent=ack.partial?
-        'Partial session received and identified as INCOMPLETE by the research server. You may close this tab.':
-        'Submission confirmed. Your study data were received by the research server. You may close this tab.';
+      unsaved=false;btn.textContent='DATA SUBMITTED ✓';
+      const receipt='Session '+ack.session_number+' received at '+ack.submitted_at_utc+' (UTC). ';
+      $('#doneSaved').textContent=receipt+(ack.partial?
+        'Partial session identified as INCOMPLETE. You may close this tab.':
+        'Your study data were received by the research server. You may close this tab.');
     }else{
-      $('#doneSaved').textContent='Not confirmed. Please check your internet connection, then retry or download a backup.';
-      btn.textContent='SUBMIT STUDY DATA'; btn.disabled=false;$('#retryUpload').hidden=false;$('#doneDl').disabled=false;$('#doneDl').disabled=false;
+      $('#doneSaved').textContent='Not confirmed. Please check your internet connection, then retry.';
+      btn.disabled=false;$('#retryUpload').hidden=false;
     }
   }catch(e){
-    $('#doneSaved').textContent='Submission failed: '+e.message+'. Retry, or download a backup.';
-    btn.textContent='SUBMIT STUDY DATA'; btn.disabled=false;$('#retryUpload').hidden=false;$('#doneDl').disabled=false;
+    $('#doneSaved').textContent='Submission failed: '+e.message+'. Please retry submission.';
+    btn.disabled=false;$('#retryUpload').hidden=false;
   }
   renderSend();
 }
 
-/* ============================================================
-   CSV
-   ============================================================ */
-const downloaded=[];
-let archiveCollector=null;
-// Individual CSV controls download one file; Download all produces ONE ZIP. Browsers can
-// silently block the previous sequence of 6–9 automatic downloads.
-function startBrowserDownload(name,blob){
-  const url=URL.createObjectURL(blob), a=document.createElement('a');
-  a.href=url;a.download=name;a.style.display='none';document.body.appendChild(a);
-  a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
-}
-function download(name,text,mime='text/csv'){
-  if(archiveCollector){archiveCollector.push({name,text,mime});return;}
-  startBrowserDownload(name,new Blob([text],{type:mime+';charset=utf-8'}));
-  if(!downloaded.includes(name))downloaded.push(name);
-  renderSend();
-}
-// Create a standards-compliant, uncompressed ZIP locally without an external library,
-// any server call, or storing study records in the browser cache. UTF-8 filenames supported.
-const ZIP_ENCODER=new TextEncoder();
-const ZIP_CRC_TABLE=(()=>{
-  const a=new Uint32Array(256);
-  for(let i=0;i<256;i++){
-    let c=i;
-    for(let j=0;j<8;j++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);
-    a[i]=c>>>0;
-  }
-  return a;
-})();
-function zipCRC32(bytes){
-  let c=0xFFFFFFFF;
-  for(let i=0;i<bytes.length;i++)c=ZIP_CRC_TABLE[(c^bytes[i])&255]^(c>>>8);
-  return (c^0xFFFFFFFF)>>>0;
-}
-function zipBackup(files){
-  if(files.length>65535)throw new Error('Too many files for ZIP export');
-  const parts=[], central=[];
-  let offset=0, centralSize=0;
-  const date=new Date(), year=Math.max(1980,date.getFullYear());
-  const dosDate=((Math.min(2107,year)-1980)<<9)|((date.getMonth()+1)<<5)|date.getDate();
-  const dosTime=(date.getHours()<<11)|(date.getMinutes()<<5)|(date.getSeconds()>>>1);
-  for(const file of files){
-    const name=ZIP_ENCODER.encode(file.name), data=ZIP_ENCODER.encode(file.text);
-    if(name.length>65535||data.length>0xFFFFFFFF)throw new Error('One backup file exceeds ZIP limits');
-    const crc=zipCRC32(data), size=data.length;
-    const local=new Uint8Array(30+name.length), lh=new DataView(local.buffer);
-    lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);
-    lh.setUint16(6,0x0800,true); // UTF-8 filename
-    lh.setUint16(8,0,true); // STORE (no compression)
-    lh.setUint16(10,dosTime,true);lh.setUint16(12,dosDate,true);
-    lh.setUint32(14,crc,true);lh.setUint32(18,size,true);lh.setUint32(22,size,true);
-    lh.setUint16(26,name.length,true);lh.setUint16(28,0,true);
-    local.set(name,30);
-    const entry=new Uint8Array(46+name.length), ch=new DataView(entry.buffer);
-    ch.setUint32(0,0x02014b50,true);ch.setUint16(4,20,true);ch.setUint16(6,20,true);
-    ch.setUint16(8,0x0800,true);ch.setUint16(10,0,true);
-    ch.setUint16(12,dosTime,true);ch.setUint16(14,dosDate,true);
-    ch.setUint32(16,crc,true);ch.setUint32(20,size,true);ch.setUint32(24,size,true);
-    ch.setUint16(28,name.length,true);ch.setUint16(30,0,true);ch.setUint16(32,0,true);
-    ch.setUint16(34,0,true);ch.setUint16(36,0,true);ch.setUint32(38,0,true);
-    ch.setUint32(42,offset,true);entry.set(name,46);
-    central.push(entry);parts.push(local,data);
-    offset+=local.length+size;centralSize+=entry.length;
-    if(offset+centralSize>0xFFFFFFFF)throw new Error('Study data too large for this ZIP format');
-  }
-  const end=new Uint8Array(22), e=new DataView(end.buffer);
-  e.setUint32(0,0x06054b50,true);e.setUint16(4,0,true);e.setUint16(6,0,true);
-  e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);
-  e.setUint32(12,centralSize,true);e.setUint32(16,offset,true);e.setUint16(20,0,true);
-  return new Blob([...parts,...central,end],{type:'application/zip'});
-}
-function stamp(){const d=new Date(),p=n=>String(n).padStart(2,'0');return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds());}
-const csvCell=v=>v==null?'':`"${String(v).replace(/"/g,'""')}"`;
-const asCSV=(headers,records)=>[headers.join(','),...records.map(r=>headers.map(k=>csvCell(r[k])).join(','))].join('\n');
-// These movement and angle values are calculated from predictions, not measured directly.
-function computeKinematics(){
- return GazeKinematics.analyze(sessionLog,{pxPerCm,distanceCm:distCm,distanceSource:distSource});
-}
-function saveKinematics(){
- if(!sessionLog.length)return false;
- const k=computeKinematics();
- download(`gaze_kinematic_samples_${pid}_${stamp()}.csv`,asCSV(Object.keys(k.samples[0]||{}),k.samples));
- download(`gaze_candidate_movements_${pid}_${stamp()}.json`,JSON.stringify({parameters:k.parameters,summary:k.summary,events:k.events},null,2),'application/json');
- return true;
-}
-// Raw gaze records are kept so that the measurements can be checked again later.
-function saveRaw(){
- if(!sessionLog.length)return false;
- const cols=['participant','t_ms','phase','event','task_id','attempt','target_x','target_y','x','y','raw_x','raw_y','smoothed_x','smoothed_y','screen_w','screen_h','dist_cm','utc_ms','webgazer_elapsed_ms','face_x_normalized','face_y_normalized','face_centered','face_last_seen_age_ms','face_brightness','frame_brightness'];
- const raw=sessionLog.map(r=>({participant:pid,t_ms:r.t,phase:r.phase,event:r.ev,task_id:r.taskId,
-  attempt:r.attempt,target_x:r.targetX,target_y:r.targetY,x:r.x,y:r.y,raw_x:r.rawX,raw_y:r.rawY,
-  smoothed_x:r.smX,smoothed_y:r.smY,screen_w:r.w,screen_h:r.h,dist_cm:r.d,utc_ms:r.utcMs,webgazer_elapsed_ms:r.webgazerElapsedMs,face_x_normalized:r.faceX,
-  face_y_normalized:r.faceY,face_centered:r.faceCentered,face_last_seen_age_ms:r.faceLastSeenAgeMs,
-  face_brightness:r.faceBrightness,frame_brightness:r.frameBrightness}));
- download(`gaze_raw_${pid}_${stamp()}.csv`,asCSV(cols,raw));return true;
-}
-function saveQuality(){
- if(!lastSummary)return false;
- const cols=['participant','point','target_x','target_y','accuracy_mean_px','accuracy_deg','mean_sample_error_px',
-  'rmse_px','rms_precision_px','rms_successive_px','n_valid','n_invalid','coverage_pct','max_gap_ms',
-  'valid_rate_hz','usable','exclusion_reasons','attempts','interrupted'];
- const rows=lastSummary.results.map(r=>({participant:pid,point:r.i,target_x:r.x,target_y:r.y,
-  accuracy_mean_px:r.accPx,accuracy_deg:r.accPx!=null?pxToDeg(r.accPx):null,
-  mean_sample_error_px:r.meanSampleErrorPx,rmse_px:r.rmsePx,rms_precision_px:r.precPx,
-  rms_successive_px:r.precisionSuccessivePx,n_valid:r.n,n_invalid:r.invalidCallbacks,
-  coverage_pct:r.coveragePct,max_gap_ms:r.maxGapMs,valid_rate_hz:r.callbackRateHz,
-  usable:r.usable,exclusion_reasons:(r.reasons||[]).join(';'),attempts:r.attempts,interrupted:r.interrupted}));
- download(`gaze_points_${pid}_${stamp()}.csv`,asCSV(cols,rows));return true;
-}
-function saveAttempts(){
- if(!validationAttempts.length)return false;
-  const cols=['participant','kind','point','attempt','targetX','targetY','interrupted','elapsedMs','callbacksValid','callbacksInvalid','status'];
- download(`gaze_attempts_${pid}_${stamp()}.csv`,asCSV(cols,validationAttempts.map(r=>({participant:pid,...r}))));return true;
-}
-// This local export is a backup if the participant cannot submit online.
-function saveSession(){
- if(!consentRecord && !sessionLog.length && !calibrationHistory.length && !validationAttempts.length)return false;
- const s=lastSummary;
- const pack={study_build:STUDY_BUILD,webgazer_version:'2.0.1',participant:pid,
-  generated_at:new Date().toISOString(),visit_type:studyVisit,eye_tracker_experience:experience,participant_id:participantId,session_outcome:s?.screenQuality||null,calibration_completed:calibrationCompleted,calibration_attempts:calibrationAttemptCount,calibration_points_collected:calibrationPointsCollected,calibration_failure_reason:calibrationFailureReason,calibration_history:calibrationHistory,validation_completed:validationCompleted,
-  independent_validation_quality_passed:passed,consent:consentRecord,
-  validation_usable_points:s?.results?.filter(r=>r.usable).length??0,
-  measured_quality:{accuracy_mean_px:s?.accPx??null,accuracy_deg:s?.accDeg??null,precision_rms_px:s?.precPx??null,
-   precision_deg:s?.precDeg??null,mean_time_coverage_pct:s?.coverage??null,callback_valid_pct:s?.validity??null,
-   sampling_hz:s?.hz??null,inter_sample_mean_ms:s?.im??null,inter_sample_sd_ms:s?.isd??null},
-  display:{w:s?.screenW??innerWidth,h:s?.screenH??innerHeight,px_per_cm:pxPerCm,distance_cm:distCm,distance_source:distSource,
-    device_pixel_ratio:devicePixelRatio,viewport_changed:viewportChanged},
-  setup:{demo,device,vision,system:sysInfo},
-  calibration:{regression:REGRESSION,kalman:kalmanOn,primary_stream:emaAlpha<1?'smoothed':'raw',
-   cal_points:CAL.length,checks:checkRuns,calibration_runs:calRuns,attempts:calibrationAttemptCount,completed:calibrationCompleted,history:calibrationHistory},
-  settings:QUALITY,face_model_source:window.__modelSource,search_trials_completed:searchTrials.length,practice_trials_completed:practiceTrials.length,
-  search_geometry_reference:{viewport_css_px:[1366,768],letter_css_px:[55,75],border_css_px:[165,245],
-    scaling:'proportional to available browser viewport',click_feedback:'target letter changes teal after first correct click'},
-  notes:'Screen pass is a screening rule, NOT proof of psychometric validity. In browser WebGazer model inference timestamp is not independently clocked.'};
- download(`gaze_session_${pid}_${stamp()}.json`,JSON.stringify(pack,null,2),'application/json');return true;
-}
-function saveValidation(){ const s=lastSummary; if(!s)return false; const q=v=>`"${String(v).replace(/"/g,'""')}"`;
-  const pxdeg=v=>v==null?',':`${v.toFixed(1)},${pxToDeg(v)==null?'':pxToDeg(v).toFixed(3)}`;
-  const rows=['point,location_id,validation_pass,validation_group,target_x,target_y,mean_gaze_x,mean_gaze_y,accuracy_px,accuracy_deg,precision_px,precision_deg,valid_n,accuracy_x_px,accuracy_x_deg,accuracy_y_px,accuracy_y_deg,precision_x_px,precision_x_deg,precision_y_px,precision_y_deg,accuracy_raw_px,accuracy_raw_deg,precision_raw_px,precision_raw_deg,accuracy_smoothed_px,accuracy_smoothed_deg,precision_smoothed_px,precision_smoothed_deg'];
-  s.results.forEach((r,k)=>{const ad=r.accPx!=null?pxToDeg(r.accPx):null,pd=r.precPx!=null?pxToDeg(r.precPx):null;
-    rows.push(`${r.i},${r.location_id||''},${r.validation_pass||''},${r.validation_group||''},${r.x},${r.y},${r.mgx==null?'':r.mgx.toFixed(1)},${r.mgy==null?'':r.mgy.toFixed(1)},${r.accPx==null?'':r.accPx.toFixed(1)},${ad==null?'':ad.toFixed(3)},${r.precPx==null?'':r.precPx.toFixed(1)},${pd==null?'':pd.toFixed(3)},${r.n},${pxdeg(r.accX)},${pxdeg(r.accY)},${pxdeg(r.precX)},${pxdeg(r.precY)},${pxdeg((s.resultsRaw[k]||{}).accPx)},${pxdeg((s.resultsRaw[k]||{}).precPx)},${pxdeg((s.resultsSm[k]||{}).accPx)},${pxdeg((s.resultsSm[k]||{}).precPx)}`);});
-  const kv=(k,v)=>rows.push(`${k},${v==null?'':v}`);
-  rows.push('');
-  kv('participant',s.pid);kv('visit_type',studyVisit);kv('eye_tracker_experience',experience);kv('participant_id',q(participantId));
-  kv('overall_accuracy_px',s.accPx==null?'':s.accPx.toFixed(1)); kv('overall_accuracy_deg',s.accDeg==null?'':s.accDeg.toFixed(3));
-  kv('overall_precision_px',s.precPx==null?'':s.precPx.toFixed(1)); kv('overall_precision_deg',s.precDeg==null?'':s.precDeg.toFixed(3));
-  const A=s.ax||{}, kv2=(k,v,vd)=>{ kv(k+'_px',v==null?'':v.toFixed(1)); kv(k+'_deg',vd==null?'':vd.toFixed(3)); };
-  kv2('overall_accuracy_x',A.accX,A.accXDeg); kv2('overall_accuracy_y',A.accY,A.accYDeg); kv2('overall_accuracy_xy_mean',A.accXY,A.accXYDeg);
-  kv2('overall_precision_x',A.precX,A.precXDeg); kv2('overall_precision_y',A.precY,A.precYDeg); kv2('overall_precision_xy_mean',A.precXY,A.precXYDeg);
-  kv('main_results_use',emaAlpha<1?'smoothed gaze':'raw gaze'); kv('smoothed_stream_alpha',SMOOTH_ALPHA);
-  ['raw','smoothed'].forEach(n=>{ const o=(s.streams||{})[n]||{};
-    kv2(`overall_${n}_accuracy`,o.accPx,o.accPxDeg); kv2(`overall_${n}_precision`,o.precPx,o.precPxDeg);
-    kv2(`overall_${n}_accuracy_x`,o.accX,o.accXDeg); kv2(`overall_${n}_accuracy_y`,o.accY,o.accYDeg);
-    kv2(`overall_${n}_precision_x`,o.precX,o.precXDeg); kv2(`overall_${n}_precision_y`,o.precY,o.precYDeg); });
-  kv('sampling_rate_hz',s.hz==null?'':s.hz.toFixed(2)); kv('inter_sample_mean_ms',s.im==null?'':s.im.toFixed(2)); kv('inter_sample_sd_ms',s.isd==null?'':s.isd.toFixed(2));
-  kv('valid_percent_callbacks_only',s.validity==null?'':s.validity.toFixed(1));
-  kv('valid_percent',s.validity==null?'':s.validity.toFixed(1));
-  kv('time_coverage_percent',s.coverage==null?'':s.coverage.toFixed(1));
-  kv('usable_regions',s.results.filter(r=>r.usable).length);
-  kv('quality_gate_pass',s.screenQuality.pass?'yes':'no');
-  kv('quality_gate_reasons',q(s.screenQuality.reasons.join('; ')));
-  (s.passSummaries||[]).forEach(x=>{kv(`validation_pass_${x.pass}_accuracy_mean_px`,x.accuracy_mean_px??'');kv(`validation_pass_${x.pass}_accuracy_mean_deg`,x.accuracy_mean_deg??'');kv(`validation_pass_${x.pass}_usable`,x.usable);});
-  kv('software_build',STUDY_BUILD);
-  kv('viewing_distance_cm',s.distCm==null?'':Math.round(s.distCm)); kv('distance_source',s.distSource); kv('camera_distance_estimate_cm',anchorLensCm);
-  kv('distance_measured_by_participant',tapeState==='done'?'yes':'no');
-  kv('tape_step',!tapeWanted?'off':tapeState==='done'?'measured':tapeState==='skipped'?'skipped (no tape measure)':'not reached');
-  kv('degrees_based_on',s.distSource==='tape measure'?'tape-measured distance':'camera-estimated distance (approximate)');
-  kv('tape_value',tape?tape.value:''); kv('tape_unit',tape?tape.unit:''); kv('tape_cm',tape?tape.cm.toFixed(1):'');
-  kv('tape_check',tape?(tape.differs?'confirmed after differing from camera estimate':'ok'):'');
-  kv('camera_fov_deg_implied',impliedFov!=null?impliedFov.toFixed(1):'');
-  kv('px_per_cm',s.pxPerCm||''); kv('screen_w',s.screenW); kv('screen_h',s.screenH); kv('fullscreen',s.fullscreen?'yes':'no');
-  kv('viewport_changed_since_calibration',s.viewportChanged?'yes':'no'); kv('position_pauses',s.pauses); kv('calibration_runs',s.calRuns);
-  kv('smoothing',emaAlpha<1?'on':'off'); kv('ema_alpha',emaAlpha); kv('regression',REGRESSION); kv('kalman_filter',kalmanOn?'on':'off'); kv('calibration_points',CAL.length); kv('calibration_samples_per_point',CAL_SAMPLES);   kv('validation_quality_passed',passed?'yes':'no'); kv('independent_validation_points',VALIDATION_LOCATIONS.length*VALIDATION_PASSES); kv('independent_validation_distinct_locations',VALIDATION_LOCATIONS.length); kv('independent_validation_passes',VALIDATION_PASSES);
-    kv('calibration_check_results','not applicable: no extra check');
-  kv('calibration_check_rule',q(JSON.stringify(QUALITY)+'; callback validity >= '+PASS_MIN_VALID+'%; all check regions required; window unchanged'));
-  kv('distance_rule_cm',`${DIST_MIN}-${DIST_MAX}`); kv('validation_target','cross with shrinking ring, 48 px, on the dark calibration background');
-  kv('validation_grid_x_fractions',V_COLS.join(';')); kv('validation_grid_y_fractions',V_ROWS.join(';'));kv('validation_extended_coordinates',q(JSON.stringify(EXTENDED_VALIDATION_LOCATIONS.map(p=>[p.fx,p.fy]))));kv('validation_brand_reference_location_ids','1-12');kv('validation_first_pass_comparable_to_brand','12 identifiable Brand-style subset locations within each pass; same nominal timing; not same hardware or exact geometry'); kv('validation_target_ms',FIND_MS+DWELL); kv('validation_blank_ms',ITI); kv('validation_pruned_ms',PRUNE); kv('validation_extra_find_ms',FIND_MS);
-  kv('ipd_mm_assumed',IPD_MM); kv('camera_fov_deg_assumed',CAM_FOV_DEG);
-  const na=v=>v||'not answered';
-  kv('demo_age',na(demo.age)); kv('demo_sex',na(demo.sex));
-  kv('demo_race_ethnicity',q(na(String(demo.race).replace(/\banother\b/,'another race or ethnicity')))); kv('demo_race_ethnicity_other',q(demo.raceOther)); kv('demo_eye_colour',na(demo.eyes));
-  kv('vision_usual_correction',vision.usual||'not answered'); kv('vision_clear_without_glasses',vision.clearWithout||(!vision.usual||/glasses/.test(vision.usual)?'not answered':'n/a'));
-  kv('vision_wearing_now',vision.now||'not answered'); kv('vision_screen_clear_now',vision.clearNow||'not answered'); kv('device_type',device.type); kv('computer_model',q(device.model)); kv('camera_type',device.camType); kv('webcam_model',q(device.webcam));
-  kv('camera',q(s.camLabel)); kv('camera_resolution',s.camRes); kv('camera_frame_rate',s.camFps); kv('cameras_available',camCount==null?'':camCount);
-  kv('os',q(sysInfo.os)); kv('cpu_architecture',q(sysInfo.arch)); kv('browser',q(sysInfo.browser)); kv('gpu',q(sysInfo.gpu));
-  kv('cpu_cores',navigator.hardwareConcurrency||''); kv('device_memory_gb',navigator.deviceMemory||'');
-  kv('screen_resolution',`${screen.width}x${screen.height}`); kv('device_pixel_ratio',devicePixelRatio); kv('touch_points',navigator.maxTouchPoints||0);
-  kv('user_agent',q(navigator.userAgent));
-  kv('face_model_source',q(window.__modelSource)); kv('webgazer','2.0.1');
-  download(`gaze_validation_${pid}_${stamp()}.csv`,rows.join('\n')); return true; }
-function saveAll(){
-  // Do not await between the participant's click and the final download. This
-  // avoids losing browser user activation and triggering multi-download blocking.
-  if(archiveCollector){toast('A backup is already being prepared.');return;}
-  const files=[], errors=[];
-  archiveCollector=files;
-  try{
-    const jobs=[saveValidation,saveQuality,saveAttempts,saveRaw,saveKinematics,saveSession];
-    if(lastSearch)jobs.push(saveSearch,saveSearchTrials);
-    for(const job of jobs){
-      try{job();}catch(error){errors.push(job.name+': '+error.message);console.error('[GazeCheck] backup export',job.name,error);}
-    }
-    // Full-resolution records including unsuccessful calibration, missing values,
-    // validation samples, and individual search-trial gaze arrays. No quality gate.
-    if(consentRecord||sessionLog.length||calibrationHistory.length||validationAttempts.length||searchTrials.length||practiceTrials.length){
-      const complete={study_build:STUDY_BUILD,generated_at:new Date().toISOString(),
-        participant:pid,visit:studyVisit,consent:consentRecord,participant_id:participantId,
-        demographics:demo,device,vision,system:sysInfo,
-        calibration_completed:calibrationCompleted,calibration_attempts:calibrationAttemptCount,
-        calibration_failure_reason:calibrationFailureReason,calibration_history:calibrationHistory,
-        validation_completed:validationCompleted,validation_quality_passed:validationCompleted?passed:null,
-        gaze_events:sessionLog,validation_attempts:validationAttempts,
-        camera_checks:checkRuns,validation_summary:lastSummary,
-        search_trials:searchTrials,practice_trials:practiceTrials,search_summary:lastSearch};
-      download(`gaze_full_record_${pid}_${stamp()}.json`,JSON.stringify(complete,null,2),'application/json');
-    }
-    if(errors.length)download('export_warnings.txt',errors.join('\n'),'text/plain');
-  }catch(error){
-    console.error('[GazeCheck] preparing backup',error);errors.push(error.message);
-  }finally{archiveCollector=null;}
-  if(!files.length){toast('There is no session data to download yet.');return;}
-  try{
-    const zip=zipBackup(files);
-    const name=`gaze_study_backup_${pid}_${stamp()}.zip`;
-    startBrowserDownload(name,zip);
-    downloaded.push(name);unsaved=false;renderSend();
-    toast(`ZIP download started (${files.length} study files). Check your Downloads folder.`);
-  }catch(error){
-    console.error('[GazeCheck] ZIP export',error);
-    toast('Could not create the ZIP: '+error.message+'. Please try the individual CSV buttons.');
-  }
-}
 function renderSend(){
  const st=StudyUpload.status;
- const info=!StudyUpload.configured?'<b>Local pilot mode.</b> No research server has been configured; use Download a backup.':
+ const info=!StudyUpload.configured?'<b>Research server unavailable.</b> Contact the study team.':
    (st.receipt?'<b>Submission confirmed.</b> Research server received the saved study records.':
      (st.submitting?'<b>Uploading study data.</b> '+st.sent+' of '+st.total+' checkpoint batches confirmed by the server. Keep this tab open.':
-      '<b>Not yet submitted.</b> '+st.pending+' checkpoint batch(es) kept only in this open tab. Data will be uploaded only after you press SUBMIT STUDY DATA.')+
+      '<b>Awaiting automatic submission.</b> '+st.pending+' checkpoint batch(es) held in this tab until the study is complete.')+
      (st.error?' Last server error: '+esc(st.error):''));
  document.querySelectorAll('.sendbox').forEach(el=>{el.innerHTML=info;});
  const box=$('#uploadProgress');
@@ -1913,9 +1715,9 @@ function renderSend(){
  line.textContent=st.receipt?'100% complete. The research server confirmed receipt.':
   (confirmed+' of '+total+' batches confirmed ('+pct+'%). Elapsed: '+elapsedText+'. '+
   (st.retrying?'Connection interrupted; retrying securely…':st.stage==='verifying'?'Checking every batch arrived…':
-    st.stage==='error'?'Please try again or download a backup.':'Transfer in progress…'));
+    st.stage==='error'?'Please retry data submission.':'Transfer in progress…'));
  warning.hidden=st.receipt;
- warning.textContent=st.stage==='error'?'Do not close this tab. Retry the upload or download a backup.':
+ warning.textContent=st.stage==='error'?'Do not close this tab. Retry data submission.':
   'DO NOT CLOSE OR REFRESH THIS TAB until submission is confirmed.';
 }
 addEventListener('study-upload-status',renderSend);
@@ -1924,6 +1726,11 @@ setInterval(()=>{if(StudyUpload.status.submitting)renderSend();},1000);
 $('#retryUpload').onclick=submitStudyData;
 $('#submitStudyData').onclick=submitStudyData;
 let logUploadCursor=0,attemptUploadCursor=0,checkUploadCursor=0,searchUploadCursor=0;
+// Movement estimates remain part of the researcher dataset even though
+// participant-facing downloads were removed.
+function computeKinematics(){
+ return GazeKinematics.analyze(sessionLog,{pxPerCm,distanceCm:distCm,distanceSource:distSource});
+}
 // Prepare movement calculations in this tab's memory before final submission.
 async function queueKinematics(){
  if(!StudyUpload.configured)return;
@@ -1949,17 +1756,19 @@ function queueCheckpoint(kind){
 async function persistCheckpoint(kind){
  if(!StudyUpload.configured||!StudyUpload.status.ready)return false;
  const untilLog=sessionLog.length,untilAttempts=validationAttempts.length,untilChecks=checkRuns.length,untilTrials=searchTrials.length,untilPractice=practiceTrials.length;
- const batch={participant:pid,visit:studyVisit,eye_tracker_experience:experience,consent_version:consentRecord?.version||null,
+ const batch={participant:pid,session_number:sessionNumber,visit:studyVisit,eye_tracker_experience:experience,consent_version:consentRecord?.version||null,
     gaze_events:sessionLog.slice(logUploadCursor,untilLog),
     attempts:validationAttempts.slice(attemptUploadCursor,untilAttempts),
     checks:checkRuns.slice(checkUploadCursor,untilChecks),
     search_trials:searchTrials.slice(searchUploadCursor,untilTrials),
     practice_trials:practiceTrials.slice(practiceUploadCursor,untilPractice),
     validation_summary:['validation_complete','finish','incomplete_finish'].includes(kind)?lastSummary:null,
+    validation_run_history:validationRuns.slice(),
     calibration_outcome:{completed:calibrationCompleted,attempts:calibrationAttemptCount,points_collected:calibrationPointsCollected,failure_reason:calibrationFailureReason,history:calibrationHistory.slice()},
     validation_completed:validationCompleted,validation_quality_passed:validationCompleted?passed:null,
     search_summary:['search_complete','finish','incomplete_finish'].includes(kind)?lastSearch:null,
-    participant_details:['finish','incomplete_finish'].includes(kind)?{participant_id:participantId,consent:consentRecord,demographics:demo,device,vision,system:sysInfo,
+    participant_details:['finish','incomplete_finish'].includes(kind)?{session_number:sessionNumber,consent:consentRecord,demographics:demo,device,vision,system:sysInfo,
+      calibration_limit_total:2,validation_run_history:validationRuns.slice(),
       screen_px_per_cm:pxPerCm,distance_cm:distCm,distance_source:distSource,
       age:demo.age||null,eye_tracker_experience:experience,calibration_completed:calibrationCompleted,calibration_attempts:calibrationAttemptCount,
       calibration_history:calibrationHistory.slice(),validation_completed:validationCompleted,validation_quality_passed:validationCompleted?passed:null}:null,
@@ -1980,16 +1789,7 @@ addEventListener('beforeunload',e=>{ if(StudyUpload.status.submitting || (unsave
 /* ============================================================
    WIRING
    ============================================================ */
-$('#gazeToggle').onclick=()=>setLiveDot(!liveDot);
-$('#toExp').onclick=finish;
-$('#toExp2').onclick=finish;
-$('#reCalFromRes').onclick=showCalIntro;
-$('#expBack').onclick=()=>{if(lastSummary)show('res');else show('sres');};
-$('#backRes').onclick=()=>{ if(lastSummary)show('res'); else toast('No completed validation results in this session.'); };
-$('#dlRaw').onclick=()=>{ saveRaw()||toast('There\u2019s no data to download yet.'); };
-$('#dlValidation').onclick=()=>{ saveValidation()||toast('There\u2019s no data to download yet.'); };
-['#dlAll','#dlAll2','#saveAll','#doneDl'].forEach(s=>$(s).onclick=saveAll);
-$('#finishBtn').onclick=finish;
+// No participant download, early-finish, results, or gaze-visualization controls.
 
 /* ============================================================
    5b · ITEM-LEVEL VISUAL SEARCH (Brand-inspired adaptation)
@@ -2013,27 +1813,20 @@ const SEARCH_MARGIN_X=18, SEARCH_TOP=64;
 const SEARCH_MIN_GAP_X=18, SEARCH_MIN_GAP_Y=20;
 function searchGeometry(){
  const w=innerWidth,h=innerHeight;
- // Bottom 150 px exclusion scales with the stimulus, as does its AOI.
- const availableW=w-2*SEARCH_MARGIN_X-(SEARCH_COLS-1)*SEARCH_MIN_GAP_X;
- const availableH=h-SEARCH_TOP-(SEARCH_ROWS-1)*SEARCH_MIN_GAP_Y;
- const scale=Math.max(0,Math.min(
-   w/SEARCH_REF_W, h/SEARCH_REF_H,
-   availableW/(SEARCH_COLS*SEARCH_REF_BORDER_W),
-   availableH/(SEARCH_ROWS*SEARCH_REF_BORDER_H+SEARCH_REF_BOTTOM_EXCLUSION)
- ));
- const borderW=SEARCH_REF_BORDER_W*scale,borderH=SEARCH_REF_BORDER_H*scale;
- const left=SEARCH_MARGIN_X+borderW/2,right=w-SEARCH_MARGIN_X-borderW/2;
- const top=SEARCH_TOP+borderH/2,bottom=h-SEARCH_REF_BOTTOM_EXCLUSION*scale-borderH/2;
- const colPitch=(right-left)/(SEARCH_COLS-1),rowPitch=(bottom-top)/(SEARCH_ROWS-1);
- const fits=w>=980&&h>=580&&scale>=0.57&&colPitch>=borderW+SEARCH_MIN_GAP_X-0.01&&rowPitch>=borderH+SEARCH_MIN_GAP_Y-0.01;
- return {scale,border_w_px:borderW,border_h_px:borderH,
+ const topMargin=SEARCH_TOP+8,bottomMargin=48;
+ const quadrantW=w/2,quadrantH=(h-topMargin-bottomMargin)/2;
+ const scale=Math.min(0.61,
+   (quadrantW-52)/(3*SEARCH_REF_BORDER_W+2*SEARCH_MIN_GAP_X),
+   (quadrantH-60)/(2*SEARCH_REF_BORDER_H+SEARCH_MIN_GAP_Y));
+ const bw=SEARCH_REF_BORDER_W*scale,bh=SEARCH_REF_BORDER_H*scale;
+ const fits=w>=980&&h>=580&&scale>=0.42;
+ return {scale,border_w_px:bw,border_h_px:bh,
    letter_w_px:SEARCH_REF_LETTER_W*scale,letter_h_px:SEARCH_REF_LETTER_H*scale,
-   viewport_w_px:w,viewport_h_px:h,bottom_exclusion_px:SEARCH_REF_BOTTOM_EXCLUSION*scale,
-   center_min_sep_px:SEARCH_REF_MIN_CENTER_DIST*scale,
-   cols:SEARCH_COLS,rows:SEARCH_ROWS,min_gap_x_px:SEARCH_MIN_GAP_X,
-   min_gap_y_px:SEARCH_MIN_GAP_Y,nonoverlap_enforced:true,
-   left,right,top,bottom,colPitch,rowPitch,fits,
-   reference_viewport_px:'1366x768',mode:'viewport_fit_no_overlapping_borders'};
+   viewport_w_px:w,viewport_h_px:h,bottom_exclusion_px:bottomMargin,
+   cols:6,rows:3,quadrants:4,quadrant_distribution:'randomized_5_4_4_5',
+   min_gap_x_px:SEARCH_MIN_GAP_X,min_gap_y_px:SEARCH_MIN_GAP_Y,
+   nonoverlap_enforced:true,topMargin,bottomMargin,quadrantW,quadrantH,fits,
+   mode:'quadrant_stratified_randomized_separated_rectangles'};
 }
 function remainingMinutes(trialsDone,trialsTotal,history){
  const sec=history.filter(t=>t.startedAt!=null&&t.endedAt!=null&&t.endedAt>t.startedAt)
@@ -2095,22 +1888,49 @@ function searchTrialQuality(tr){
 // Keep every full bordered E/# rectangle separate. Randomize which positions
 // contain targets, and jitter positions only when enough free space is available.
 function makeTrial(){
- const g=searchGeometry();
- if(!g.fits)return null;
- const all=[];
- // The jitter budget is set by the *actual border gap*, not center distance.
- const jitterX=Math.min(9,Math.max(0,(g.colPitch-g.border_w_px-SEARCH_MIN_GAP_X)/2));
- const jitterY=Math.min(7,Math.max(0,(g.rowPitch-g.border_h_px-SEARCH_MIN_GAP_Y)/2));
- for(let row=0;row<SEARCH_ROWS;row++)for(let col=0;col<SEARCH_COLS;col++){
-   const x=g.left+col*g.colPitch+(Math.random()*2-1)*jitterX;
-   const y=g.top+row*g.rowPitch+(Math.random()*2-1)*jitterY;
-   all.push({x,y});
+ const g=searchGeometry();if(!g.fits)return null;
+ const all=[], distribution=[5,4,4,5];
+ // Rotate the high-density quadrants between trials to balance spatial exposure.
+ const swap=Math.floor(Math.random()*4);
+ function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+ for(let q=0;q<4;q++){
+   const x0=(q%2)*g.quadrantW, y0=g.topMargin+Math.floor(q/2)*g.quadrantH;
+   // Keep border rectangles and required gaps inside each quadrant.
+   const guardX=g.border_w_px/2+SEARCH_MIN_GAP_X/2+5;
+   const guardY=g.border_h_px/2+SEARCH_MIN_GAP_Y/2+5;
+   const pitchX=(g.quadrantW-2*guardX)/2, pitchY=g.quadrantH-2*guardY;
+   const maxJX=Math.max(0,Math.min(38,(pitchX-g.border_w_px-SEARCH_MIN_GAP_X)/2-2));
+   const maxJY=Math.max(0,Math.min(20,(pitchY-g.border_h_px-SEARCH_MIN_GAP_Y)/2-2));
+   const slots=shuffle([0,1,2,3,4,5]);
+   const count=distribution[(q+swap)%4];
+   const placed=[];
+   for(const slot of slots.slice(0,count)){
+     const col=slot%3,row=Math.floor(slot/3);
+     const cellX=x0+guardX+col*pitchX,cellY=y0+guardY+row*pitchY;
+     const boundX=guardX,boundY=guardY;
+     let candidate=null;
+     // Select a fresh position within the quadrant, rejecting any overlap.
+     for(let k=0;k<120;k++){
+       const x=Math.max(x0+boundX,Math.min(x0+g.quadrantW-boundX,cellX+(Math.random()*2-1)*maxJX));
+       const y=Math.max(y0+boundY,Math.min(y0+g.quadrantH-boundY,cellY+(Math.random()*2-1)*maxJY));
+       if(placed.every(p=>Math.abs(x-p.x)>=g.border_w_px+SEARCH_MIN_GAP_X ||
+                         Math.abs(y-p.y)>=g.border_h_px+SEARCH_MIN_GAP_Y)){
+         candidate={x,y,quadrant:q+1};break;
+       }
+     }
+     if(!candidate)candidate={x:cellX,y:cellY,quadrant:q+1};
+     placed.push(candidate);all.push(candidate);
+   }
  }
- const idx=[...all.keys()];
- for(let k=idx.length-1;k>0;k--){const j=(Math.random()*(k+1))|0;[idx[k],idx[j]]=[idx[j],idx[k]];}
- const targetSet=new Set(idx.slice(0,2)),targets=[];
- all.forEach((p,k)=>{p.id=k+1;p.target=targetSet.has(k);if(p.target)targets.push({id:p.id,x:p.x,y:p.y});});
- const {left,right,top,bottom,colPitch,rowPitch,fits,...recordedGeometry}=g;
+ if(all.length!==18)return null;
+ // Final global collision check includes cross-quadrant borders.
+ for(let i=0;i<all.length;i++)for(let j=i+1;j<all.length;j++){
+   if(Math.abs(all[i].x-all[j].x)<g.border_w_px+SEARCH_MIN_GAP_X-0.01 &&
+      Math.abs(all[i].y-all[j].y)<g.border_h_px+SEARCH_MIN_GAP_Y-0.01)return null;
+ }
+ const idx=shuffle([...all.keys()]),targetSet=new Set(idx.slice(0,2)),targets=[];
+ all.forEach((p,k)=>{p.id=k+1;p.target=targetSet.has(k);if(p.target)targets.push({id:p.id,x:p.x,y:p.y,quadrant:p.quadrant});});
+ const {topMargin,bottomMargin,quadrantW,quadrantH,fits,...recordedGeometry}=g;
  return {targets,stim:all,geometry:recordedGeometry,gaze:[],clicks:[],invalidCallbacks:0,
    startedAt:null,endedAt:null,status:'pending',pauseTriggered:false};
 }
@@ -2146,12 +1966,11 @@ function trialUntilDone(tr){return new Promise(resolve=>{
       hit.add(item.id);
       const el=area.querySelector(`.stim[data-stimulus-id="${item.id}"]`);
       if(el)el.classList.add('found',...(tr.practice?['practice-found']:[]));
-      if(tr.practice)$('#searchMsg').textContent=`Practice ${tr.id} of ${PRACTICE_TRIALS}: ${hit.size} of 2 target Es found. Click the other E.`;
+      // Keep the stimulus unchanged except for the selected target's color.
     }
     if(hit.size>=2)fin('completed');
   }
-  function onK(e){if(e.code==='Space'){e.preventDefault();fin('skipped');}
-    if(e.key==='Escape'){abortTask('Search task stopped');fin('aborted');}}
+  function onK(e){if(e.code==='Space')e.preventDefault();}
   const to=setTimeout(()=>fin('timed_out'),SEARCH_TRIAL_TIMEOUT);
   const iv=setInterval(()=>{if(aborted)fin('aborted');else if(paused||viewportChanged)fin('interrupted');},70);
   area.addEventListener('mousedown',onC);document.addEventListener('keydown',onK);
@@ -2169,7 +1988,7 @@ async function runPractice(){
     tr.id=ti+1;tr.practice=true;tr.attempt=1;
     activeTaskId=`practice_${tr.id}`;activeAttempt=1;
     renderTrial(tr);curTrial=tr;tr.startedAt=now();searchActive=true;
-    $('#searchMsg').textContent=`PRACTICE ${ti+1}/${PRACTICE_TRIALS} · ${remainingMinutes(ti,PRACTICE_TRIALS,practiceTrials)} · Click two normal Es; green means selected.`;
+
     logEvent('practice_trial_start',0,0);
     const outcome=await trialUntilDone(tr);
     searchActive=false;logEvent('practice_trial_end',0,0);
@@ -2177,7 +1996,7 @@ async function runPractice(){
     if(aborted||my!==runId){await queueCheckpoint('task_aborted').catch(()=>{});return;}
     await queueCheckpoint('search_trial');
     $('#searchArea').innerHTML='';
-    if(outcome!=='completed')toast('Practice trial '+(ti+1)+' recorded as '+outcome+'. You can continue.');
+
     await sleep(250);
   }
   curTrial=null;searchActive=false;activeTaskId='';activeAttempt=0;
@@ -2187,11 +2006,11 @@ function showMainSearchIntro(){
   phase='instructions';
   instruct('Practice finished','Now begin the recorded visual search',
     '<p>You have completed 10 practice rounds. The next 50 rounds are the actual study task. Allow about 5–12 minutes depending on how quickly you find targets. Keep looking at the centre of each normal-facing E when you click. A clicked target turns teal so you know it was selected. Practice trials are saved separately and excluded from the main analysis.</p>', 
-    [{label:'Start 50 study trials',primary:true,fs:true,fn:runSearch},{label:'Finish early and submit',fn:finish}]);
+    [{label:'Start 50 study trials',primary:true,fs:true,fn:runSearch}]);
 }
 // Run the scored search task only once per session to avoid mixing in repeated practice effects.
 async function runSearch(){
-  if(searchHasRun){toast('This study session already contains a visual search attempt. Complete or finish the current session.');if(lastSearch)show('sres');return;}
+  if(searchHasRun){toast('The visual search has already started for this session.');return;}
   // Gaze quality is an analysis flag, not a condition for completing the behavioral task.
   searchHasRun=true;
   aborted=false;const my=++runId;phase='search';show('search');placeCam(null);
@@ -2203,12 +2022,12 @@ async function runSearch(){
       if(await gate()){if(aborted||my!==runId)return;await sleep(RESUME_SETTLE);}
       tr=makeTrial();
       if(!tr){
-        abortTask('This browser area is too small for 18 separated search items. Please enter full screen or use a larger display, then recalibrate.');
+        abortTask('This screen is too small to display 18 separated search items. Please use a larger desktop or laptop display for a new session.');
         return;
       }
       tr.id=ti+1;tr.attempt=retry;activeTaskId=`search_${tr.id}`;activeAttempt=retry;
       renderTrial(tr);curTrial=tr;tr.startedAt=now();searchActive=true;
-      $('#searchMsg').textContent=`STUDY ${ti+1}/${SEARCH_TRIALS} · ${remainingMinutes(ti,SEARCH_TRIALS,searchTrials)} · Click the two normal-facing Es.`;
+
       logEvent('search_trial_start',0,0);
       const outcome=await trialUntilDone(tr);
       searchActive=false;logEvent('search_trial_end',0,0);
@@ -2238,8 +2057,8 @@ function scoreSearch(){
     metric:'click-linked fixation detection (Brand-style operational ground truth; not independently observed fixations)',
     itemLevel:scoreItemStream(g=>g),
     validTrials:searchTrials.filter(t=>(t.status==='completed'||t.status==='timed_out')&&t.quality?.usable).length};
-  unsaved=true;phase='search_results';renderSearchResults();
-  queueCheckpoint('search_complete').catch(()=>{});
+  unsaved=true;phase='search_results';
+  queueCheckpoint('search_complete').then(finish).catch(finish);
 }
 // Account for the actual stimulus scale in every fixation area-of-interest.
 // The whole-screen AOI is a control and uses the current viewport.
@@ -2349,49 +2168,13 @@ function drawROC(){
     r.pts.forEach(p=>{c.beginPath();c.arc(px(p.fpr),py(p.tpr),3,0,7);c.fill();});
     c.fillText(`${D} ms · AUC ${r.auc==null?'NA':r.auc.toFixed(2)}`, px(0.42), ly); ly+=18; });
 }
-function saveSearch(){
- if(!lastSearch)return false;
- const cols=['participant','visit','signal','method','min_fix_ms','aoi_w','aoi_h','TP','FP','FN','TN',
-  'target_detection_rate','distractor_rejection_rate','derived_auc','interpretation'];
- const rows=[];
- for(const name of ['primary','raw','smoothed','item_level']){
-  const t=name==='primary'?lastSearch:(name==='item_level'?lastSearch.itemLevel:lastSearch.byStream[name]);
-  t.rows.forEach(r=>rows.push({participant:pid,visit:studyVisit,signal:name,
-    method:name==='item_level'?'target_vs_distractor_item_classification':'click_linked_500ms',
-    min_fix_ms:r.D,aoi_w:r.A.w,aoi_h:r.A.h,TP:r.TP,FP:r.FP,FN:r.FN,TN:r.TN,
-    target_detection_rate:r.sens,distractor_rejection_rate:r.spec,
-    derived_auc:t.rocByDur[r.D].auc,
-    interpretation:name==='item_level'?'target-vs-distractor item discrimination':'click-linked proxy for fixation ground truth; not independent fixation validation'}));
- }
- download(`gaze_search_item_metrics_${pid}_${stamp()}.csv`,asCSV(cols,rows));return true;
-}
-function saveSearchTrials(){
- if(!searchTrials.length)return false;
- const cols=['participant','visit','trial','attempt','status','started_at_ms','ended_at_ms',
-  'stimulus_id','target','x','y','clicked','first_click_ms','click_correct','stimulus_scale','stimulus_border_w_px','stimulus_border_h_px','stimulus_letter_w_px','stimulus_letter_h_px','viewport_w_px','viewport_h_px','trial_gaze_n','invalid_callbacks','gaze_usable','gaze_coverage_pct','gaze_exclusion_reason'];
- const out=[];
- searchTrials.forEach(tr=>tr.stim.forEach(item=>{
-   const hits=tr.clicks.filter(c=>c.stimulus_id===item.id);
-   out.push({participant:pid,visit:studyVisit,trial:tr.id,attempt:tr.attempt,status:tr.status,
-     started_at_ms:tr.startedAt?tr.startedAt-t0:null,ended_at_ms:tr.endedAt?tr.endedAt-t0:null,
-     stimulus_id:item.id,target:item.target,x:item.x,y:item.y,clicked:hits.length>0,
-     first_click_ms:hits.length?hits[0].t-t0:null,click_correct:hits.length?hits[0].correct:null,
-     stimulus_scale:tr.geometry?.scale,stimulus_border_w_px:tr.geometry?.border_w_px,
-     stimulus_border_h_px:tr.geometry?.border_h_px,stimulus_letter_w_px:tr.geometry?.letter_w_px,
-     stimulus_letter_h_px:tr.geometry?.letter_h_px,viewport_w_px:tr.geometry?.viewport_w_px,
-     viewport_h_px:tr.geometry?.viewport_h_px,trial_gaze_n:tr.gaze.length,invalid_callbacks:tr.invalidCallbacks||0,
-     gaze_usable:tr.quality?.usable||false,gaze_coverage_pct:tr.quality?.coveragePct,
-     gaze_exclusion_reason:(tr.quality?.reasons||[]).join(';')});
- }));
- download(`gaze_search_trials_${pid}_${stamp()}.csv`,asCSV(cols,out));return true;
-}
 function showSearchIntro(){ phase='instructions';
   instruct('Study task','Find the letters',
-    '<p>You\u2019ll see two normal-facing Es among 16 reversed Es, each surrounded by eight # symbols. First complete 10 practice rounds (about 2–4 minutes). Then complete 50 study rounds (about 5–12 minutes at a typical pace). Look at the centre of each normal E and click it. When you correctly click one, its letter changes color so you can see it was selected.</p><p class="hint">Each round allows up to 25 seconds, so the total can be longer. Press Space to skip; Esc stops the task. Practice records are kept separately from the study score.</p>', 
-    [{label:'Start 10 practice rounds',primary:true,fs:true,fn:runPractice},{label:'Not now',fn:()=>lastSummary?show('res'):finish()}]); }
-$('#toSearch').onclick=showSearchIntro;
+    '<p>You\u2019ll see two normal-facing Es among 16 reversed Es, each surrounded by eight # symbols. First complete 10 practice rounds (about 2–4 minutes). Then complete 50 study rounds (about 5–12 minutes at a typical pace). Look at the centre of each normal E and click it. When you correctly click one, its letter changes color so you can see it was selected.</p><p class="hint">Each round allows up to 25 seconds. Practice records are kept separate from the study score.</p>',
+    [{label:'Start 10 practice rounds',primary:true,fs:true,fn:runPractice}]); }
+
 // Deliberately no repeat button: repeated search runs would bias within-session outcomes.
-$('#dlSearch').onclick=()=>{ saveSearch()||toast('There\u2019s no search data yet.'); };
+
 })();
 </script>
 </body>

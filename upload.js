@@ -1,15 +1,16 @@
 /* WebGazer study upload (memory-only, fresh-session edition 3.2).
  * Checkpoints and the temporary upload capability live only in this page's memory.
  * Nothing is stored in localStorage, sessionStorage, IndexedDB, or Cache Storage.
- * No gaze/consent/participant records leave the page until Submit Study Data.
- * Reloading or closing this page before submission irreversibly loses unsent data.
+ * StudyUpload.complete() is invoked automatically when the full task pipeline finishes.
+ * Only then are records sent to the server. Reloading or closing early can lose
+ * any results that have not been confirmed by the server.
  */
 (function(root){
 'use strict';
 const api=(root.STUDY_API_URL||'').replace(/\/$/,'');
 const configured=Boolean(api);
 const pageInstance=root.crypto?.randomUUID?.()||String(Date.now())+'_'+Math.random();
-let token='',sid='',visit='pilot',initPromise=null,submitting=null,enqueueLock=Promise.resolve();
+let token='',sid='',sessionNumber='',visit='pilot',initPromise=null,submitting=null,enqueueLock=Promise.resolve();
 let sequence=0;
 const queue=[];
 const status={configured,ready:false,pending:0,error:'',sent:0,receipt:false,submitting:false};
@@ -57,18 +58,25 @@ function start(){
       });
       if(!response.ok)throw new Error('Could not open a new study session ('+response.status+'). Please try again.');
       const data=await response.json();
-      if(!/^[a-f0-9]{32}$/.test(data.session_id)||!data.token){
+      if(!/^[a-f0-9]{32}$/.test(data.session_id)||
+         !/^[0-9]{12}$/.test(data.session_number)||!data.token){
         throw new Error('Study server returned an invalid session.');
       }
       sid=data.session_id;
+      sessionNumber=data.session_number;
       token=data.token;
     }else{
       sid=pageInstance;
+      // Local pilot fallback. Real server sessions use cryptographic randomness.
+      const digits=new Uint32Array(2);
+      if(root.crypto?.getRandomValues)root.crypto.getRandomValues(digits);
+      else {digits[0]=Date.now()>>>0;digits[1]=Math.floor(Math.random()*2**32);}
+      sessionNumber=String((BigInt(digits[0])*4294967296n+BigInt(digits[1]))%1000000000000n).padStart(12,'0');
     }
     visit='pilot';
     status.ready=true;status.error='';status.pending=0;changed();
-    return {mode:configured?'online':'local',session_id:sid,visit,pending:0,
-      needsResume:false,hasFinish:false};
+    return {mode:configured?'online':'local',session_id:sid,session_number:sessionNumber,
+      visit,pending:0,needsResume:false,hasFinish:false};
   })().catch(error=>{initPromise=null;setError(error.message);throw error;});
   return initPromise;
 }
@@ -95,16 +103,9 @@ async function sendAll(){
     status.submitting=true;status.error='';changed();
     // This is the first time study data are sent over the network.
     const opened=await request('/api/sessions',{});
-    if(opened.session_id!==sid)throw new Error('Study session verification failed. No data were submitted.');
-    if(sequence===0)throw new Error('No study data available. Download a backup.');
-    // Fail locally instead of sending consent at an invalid sequence position.
-    const first=queue[0];
-    if(!first || first.seq!==0 || first.payload.kind!=='consent' ||
-       first.payload.data.agreed!==true ||
-       !String(first.payload.data.typed_name||'').trim() ||
-       !first.payload.data.version || !first.payload.data.acknowledged_at){
-      throw new Error('Consent must be the first complete study batch. Download a backup.');
-    }
+    if(opened.session_id!==sid || opened.session_number!==sessionNumber)
+      throw new Error('Study session verification failed. No data were submitted.');
+    if(sequence===0)throw new Error('No study data available to submit.');
     while(queue.length){
       const entry=queue[0];
       await request('/api/sessions/'+sid+'/batches/'+entry.seq,entry.payload);
@@ -113,7 +114,12 @@ async function sendAll(){
     }
     const ack=await request('/api/sessions/'+sid+'/complete',{last_sequence:sequence-1});
     if(ack.status!=='acknowledged')throw new Error('The server did not confirm submission');
-    status.receipt=true;status.error='';changed();
+    if(ack.session_number!==sessionNumber ||
+       typeof ack.submitted_at_utc!=='string' ||
+       !/^\d{4}-\d{2}-\d{2}T.*Z$/.test(ack.submitted_at_utc)){
+      throw new Error('The study server returned an incomplete submission receipt');
+    }
+    status.receipt=true;status.submittedAtUtc=ack.submitted_at_utc;status.error='';changed();
     return ack;
   })().catch(error=>{setError(error.message);throw error;})
     .finally(()=>{status.submitting=false;submitting=null;changed();});
