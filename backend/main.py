@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, Response
 from pathlib import Path
 from urllib.parse import urlsplit
 from admin_portal import register, check_admin_config
+from storage_codec import read_object_json
 from pydantic import BaseModel, Field
 from typing import Literal
 
@@ -121,7 +122,7 @@ def upload_json(key: str, value: dict, *, record_type: str = ''):
     # Explicit fail-on-overwrite supports concurrent duplicate requests on stores that honor conditional PutObject.
     # Object creation under unique keys is best-effort for S3-compatible implementations; verify with replay tests.
     s3().put_object(Bucket=bucket(), Key=key, Body=blob,
-                    ContentType='application/json', ContentEncoding='gzip',
+                    ContentType='application/gzip',
                     Metadata={'sha256': sha, 'kind': record_type})
     return {'status': 'stored', 'sha256': sha}
 
@@ -209,6 +210,9 @@ def identify(authorization: str | None) -> tuple[str, dict]:
     if not authorization or not authorization.startswith('Bearer '):
         raise HTTPException(401, 'Submission token required')
     data = verify(authorization[7:], env('STUDY_SECRET'))
+    # Explicitly deleted sessions must not be restored by a still-valid token.
+    if object_exists(f"deleted_sessions/{data['sid']}.json"):
+        raise HTTPException(410, 'This session has been deleted')
     return data['sid'], data
 
 
@@ -301,7 +305,7 @@ def complete(session_id: str, req: CompleteRequest, authorization: str | None = 
     if old_completion:
         # Return the ORIGINAL server timestamp after network retries, not a newly
         # generated time that would misrepresent the moment of submission.
-        saved = json.loads(gzip.decompress(s3().get_object(Bucket=bucket(), Key=completion_key)['Body'].read()))
+        saved = read_object_json(s3(), bucket(), completion_key)
         return {'status': 'acknowledged', 'session_id': sid,
                 'session_number': saved.get('session_number'),
                 'submitted_at_utc': saved.get('submitted_at_utc'),

@@ -13,6 +13,7 @@ import tempfile
 import zipfile
 from collections import defaultdict
 from datetime import datetime, timezone
+from storage_codec import decode_json_bytes, ensure_gzip_bytes, read_object_json
 
 
 
@@ -31,8 +32,7 @@ def objects(client, bucket, prefix):
 
 
 def read_json(client, bucket, key):
-    payload = client.get_object(Bucket=bucket, Key=key)['Body'].read()
-    return json.loads(gzip.decompress(payload))
+    return read_object_json(client, bucket, key)
 
 
 def status_for(items):
@@ -118,8 +118,8 @@ def _session_export(z, s3, bucket, sid, items, prefix=''):
         if not key.endswith('.json.gz'):
             continue
         data_bytes = s3.get_object(Bucket=bucket, Key=key)['Body'].read()
-        z.writestr(base + 'raw/' + key.split('sessions/' + sid + '/', 1)[-1], data_bytes)
-        data = json.loads(gzip.decompress(data_bytes))
+        z.writestr(base + 'raw/' + key.split('sessions/' + sid + '/', 1)[-1], ensure_gzip_bytes(data_bytes))
+        data = decode_json_bytes(data_bytes)
         filename = key.rsplit('/', 1)[-1]
         if filename == 'start.json.gz':
             manifest['start'] = data
@@ -251,7 +251,11 @@ def _session_export(z, s3, bucket, sid, items, prefix=''):
 
 # One session or the whole study can be exported as a ZIP of raw records, CSVs, and plots.
 def build_export(s3, bucket, session_id=None, max_size=350*1024*1024):
-    """Returns positioned temporary file; caller closes it after streaming response."""
+    """Export completed, nonpartial sessions only; never export abandoned uploads.
+
+    In an all-sessions export, unreadable completion receipts are listed in a
+    conspicuous warning CSV, rather than failing every other valid export.
+    """
     items = list(objects(s3, bucket, f'sessions/{session_id}/' if session_id else 'sessions/'))
     by_session = defaultdict(list)
     for item in items:
@@ -260,38 +264,58 @@ def build_export(s3, bucket, session_id=None, max_size=350*1024*1024):
             by_session[parts[1]].append(item)
     if session_id and session_id not in by_session:
         raise FileNotFoundError('Session not found')
-    total_bytes = sum(x.get('Size', 0) for x in items)
+    eligible = []
+    unreadable = []
+    for sid, session_items in sorted(by_session.items()):
+        if not any(v['Key'] == f'sessions/{sid}/completed.json.gz' for v in session_items):
+            continue
+        try:
+            receipt = read_json(s3, bucket, f'sessions/{sid}/completed.json.gz')
+            if receipt.get('partial'):
+                continue
+            eligible.append((sid, session_items))
+        except Exception:
+            unreadable.append({'session_id': sid, 'issue': 'Completion receipt could not be read. Inspect protected storage/logs.'})
+    if session_id and not eligible:
+        raise FileNotFoundError('Session not confirmed as submitted; verify receipt before export')
+    total_bytes = sum(int(x.get('Size', 0)) for _, group in eligible for x in group)
     if total_bytes > max_size:
         raise OverflowError('Dataset is too large for one browser export. Use the command-line export instead.')
     f = tempfile.SpooledTemporaryFile(max_size=12*1024*1024)
     try:
         with zipfile.ZipFile(f, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=3, allowZip64=True) as z:
             results = []
-            for sid, session_items in sorted(by_session.items()):
-                results.append(_session_export(z, s3, bucket, sid, session_items))
+            for sid, session_items in eligible:
+                try:
+                    # Write each session into a temporary ZIP first, so one damaged
+                    # batch cannot leave a partial session in the final export.
+                    staging = io.BytesIO()
+                    with zipfile.ZipFile(staging, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=3) as subzip:
+                        result = _session_export(subzip, s3, bucket, sid, session_items)
+                    with zipfile.ZipFile(io.BytesIO(staging.getvalue())) as subzip:
+                        for name in subzip.namelist():
+                            z.writestr(name, subzip.read(name))
+                    results.append(result)
+                except Exception:
+                    if session_id:
+                        raise
+                    unreadable.append({'session_id': sid, 'issue': 'A study batch could not be exported. Inspect protected storage/logs.'})
             z.writestr('study_summary.csv', _csv_content(results))
             z.writestr('README_EXPORT.txt',
-                'WebGazer validation study export.\n'
-                'csv/ contains flattened raw tables; raw/ preserves original compressed JSON checkpoints.\n'
-                                'validation_timing.csv: per-target callback timing statistics and quality flags.\n'
-                'validation_intervals.csv: every valid gaze prediction interval in each assessment.\n'
-                'camera_intervals.csv: every observed video frame interval when supported.\n'
-                'sampling_summary.csv: each validation run, both measured camera FPS and measured gaze Hz.\n'
-                'validation_runs.csv: assessments with their accuracy and quality flags.\n'
-                'Sampling rate = 1000 / mean callback interval (ms), using valid in-screen gaze predictions\n'
-                'within the same validation target, after the first 100 ms of each 2000 ms target.\n'
-                'All validation targets contribute, including unusable or interrupted ones.\n'
-                'camera_reported_frame_rate_fps is the track setting; observed_camera_fps is\n'
-                'from browser video frame presentation callbacks, not a direct sensor clock.\n'
-                'plots/ contains generated descriptive PNG figures, not independently validated eye movements.\n'
-                'Study sessions may not represent distinct people (study URL is open and anonymous).\n'
-                'Keep the optional names, demographics and raw gaze data in approved protected research storage.\n')
+                'WebGazer validation study export: ONLY confirmed complete submissions.\n'
+                'Abandoned, in-progress, and partial sessions are excluded.\n'
+                'READ export_errors.csv if present: those sessions were NOT exported.\n'
+                'raw/ contains actual gzip-compressed JSON even for legacy Google Cloud files.\n'
+                'csv/ contains flattened study tables; plots/ contains descriptive figures.\n'
+                'sampling_summary.csv contains independently observed camera FPS and valid gaze Hz.\n'
+                'Keep study data on approved protected research storage.\n')
+            if unreadable:
+                z.writestr('export_errors.csv', _csv_content(unreadable))
             if not session_id and results:
-                good = sum(1 for r in results if r['status']=='submitted')
-                statuses = ['Complete','Incomplete or not submitted']
-                fig = _png_plot([1,2],[good,len(results)-good], 'Category index (1=complete, 2=other)', 'Sessions',
-                                 'Study completion summary', kind='bar')
-                if fig: z.writestr('study_plots/completion_overview.png', fig)
+                graphic = _png_plot([1], [len(results)], 'Completed sessions', 'Count',
+                                    'Successfully exported submissions', kind='bar')
+                if graphic:
+                    z.writestr('study_plots/completion_overview.png', graphic)
         f.seek(0)
         return f
     except BaseException:

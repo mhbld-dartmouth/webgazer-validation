@@ -20,6 +20,7 @@ from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from export_reports import objects, read_json, build_export
+from retention import cleanup_stale
 
 HERE = Path(__file__).resolve().parent
 SID_RE = re.compile(r'^[a-f0-9]{32}$')
@@ -132,7 +133,8 @@ def register(app, get_s3, get_bucket):
                          'exp':int(time.time())+30*60, 'nonce':secrets.token_hex(16)})
         return JSONResponse({'token':token, 'expires_in_seconds':1800}, headers={'Cache-Control':'no-store'})
 
-    # Count all saved sessions, but only load detailed rows for the latest 250.
+    # Only confirmed submissions appear in the participant table. Unreadable
+    # completion receipts are surfaced separately rather than silently ignored.
     @app.get('/admin/api/sessions', include_in_schema=False)
     def sessions(request: Request):
         _require(request)
@@ -143,11 +145,20 @@ def register(app, get_s3, get_bucket):
             if len(parts) >= 3 and SID_RE.fullmatch(parts[1]):
                 grouped[parts[1]].append(item)
         records = []
-        counts = {'submitted':0, 'incomplete':0, 'uploading':0, 'receipt_error':0}
+        warnings = []
         for sid, items in grouped.items():
-            keys = {v['Key'].rsplit('/',1)[-1] for v in items}
-            item = {'session_id':sid, 'session_number':None,
-                    'submitted_at_utc':None, 'status':'uploading',
+            if not any(v['Key'] == f'sessions/{sid}/completed.json.gz' for v in items):
+                continue  # Never show unfinished uploads as completed records.
+            try:
+                complete = read_json(s3, bucket, f'sessions/{sid}/completed.json.gz')
+            except Exception:
+                # Protect and flag this record. It may contain recoverable study data.
+                warnings.append({'session_id':sid, 'issue':'Unreadable completion receipt'})
+                continue
+            if complete.get('partial'):
+                continue
+            item = {'session_id':sid, 'session_number':complete.get('session_number'),
+                    'submitted_at_utc':complete.get('submitted_at_utc'), 'status':'submitted',
                     'batches':sum('/batches/' in x['Key'] for x in items),
                     'bytes':sum(int(x.get('Size',0)) for x in items),
                     'last_activity':None, 'visit':'pilot'}
@@ -157,25 +168,8 @@ def register(app, get_s3, get_bucket):
                     iso = stamp.astimezone(timezone.utc).isoformat()
                     if not item['last_activity'] or iso > item['last_activity']:
                         item['last_activity'] = iso
-            if 'completed.json.gz' in keys:
-                try:
-                    complete = read_json(s3, bucket, f'sessions/{sid}/completed.json.gz')
-                    item['status'] = 'incomplete' if complete.get('partial') else 'submitted'
-                    item['session_number'] = complete.get('session_number')
-                    item['submitted_at_utc'] = complete.get('submitted_at_utc')
-                except Exception:
-                    item['status'] = 'receipt_error'
-            # Still show the number for sessions in progress if the start record exists.
-            if not item['session_number'] and 'start.json.gz' in keys:
-                try:
-                    started = read_json(s3, bucket, f'sessions/{sid}/start.json.gz')
-                    item['session_number'] = started.get('session_number')
-                except Exception:
-                    pass
-            counts[item['status']] = counts.get(item['status'],0)+1
             records.append(item)
         records.sort(key=lambda x:x['last_activity'] or '', reverse=True)
-        # Only detailed metric reads are capped. Completion totals include all stored sessions.
         for item in records[:250]:
             sid = item['session_id']
             try:
@@ -191,10 +185,122 @@ def register(app, get_s3, get_bucket):
                 item['metrics']['camera_observed_interval_mean_ms'] = timing.get('observed_frame_interval_mean_ms')
                 item['validation_passed'] = (summary.get('screenQuality') or {}).get('pass')
             except Exception:
-                pass
-        return {'total_sessions':len(records), 'counts':counts,
+                item['metrics_error'] = True
+        return {'total_sessions':len(records),
+                'counts':{'submitted':len(records), 'needs_review':len(warnings)},
                 'sessions':records[:250], 'shown':min(250,len(records)),
+                'needs_review':warnings[:20],
                 'refreshed_at':datetime.now(timezone.utc).isoformat()}
+
+    # Explicit researcher-controlled cleanup; never deletes a session that has a
+    # completion receipt, even if its content cannot be read.
+    @app.post('/admin/api/cleanup-stale', include_in_schema=False)
+    def cleanup(request: Request, dry_run: bool = True):
+        _require(request)
+        return cleanup_stale(get_s3(), get_bucket(), dry_run=dry_run)
+
+    # A separate, deliberately opened storage management list includes incomplete
+    # sessions, including receipts requiring investigation. It does not expose
+    # raw participant data or any study rows to unauthenticated users.
+    @app.get('/admin/api/stored-sessions', include_in_schema=False)
+    def stored_sessions(request: Request):
+        _require(request)
+        grouped = defaultdict(list)
+        for item in objects(get_s3(), get_bucket(), 'sessions/'):
+            parts = item['Key'].split('/')
+            if len(parts) >= 3 and SID_RE.fullmatch(parts[1]):
+                grouped[parts[1]].append(item)
+        records = []
+        for sid, items in grouped.items():
+            has_receipt = any(x['Key'] == f'sessions/{sid}/completed.json.gz' for x in items)
+            state = 'receipt_needs_review' if has_receipt else 'unfinished'
+            number = None
+            if has_receipt:
+                try:
+                    receipt = read_json(get_s3(), get_bucket(), f'sessions/{sid}/completed.json.gz')
+                    state = 'submitted' if not receipt.get('partial') else 'partial_receipt'
+                    number = receipt.get('session_number')
+                except Exception:
+                    pass
+            last = max((x.get('LastModified') for x in items
+                        if isinstance(x.get('LastModified'), datetime)), default=None)
+            records.append({'session_id':sid, 'session_number':number,
+                            'status':state, 'objects':len(items),
+                            'bytes':sum(int(x.get('Size',0)) for x in items),
+                            'last_activity_utc':last.astimezone(timezone.utc).isoformat() if last else None})
+        records.sort(key=lambda x:x['last_activity_utc'] or '', reverse=True)
+        return {'total':len(records), 'shown':min(250,len(records)), 'sessions':records[:250]}
+
+    # Destructive operations demand BOTH a valid researcher token and a new
+    # password check; typing the exact complete session ID prevents row mistakes.
+    # Only objects under this exact session prefix are removed. A minimal
+    # tombstone outside sessions/ blocks old participant tokens from recreating
+    # deleted data during their remaining 72h lifetime.
+    @app.delete('/admin/api/sessions/{session_id}', include_in_schema=False)
+    async def delete_session(session_id: str, request: Request):
+        _require(request)
+        if not SID_RE.fullmatch(session_id):
+            raise HTTPException(404, 'Session not found')
+        raw = await request.body()
+        if len(raw) > 1024:
+            raise HTTPException(413, 'Request too large')
+        try:
+            body = json.loads(raw)
+            password = body.get('password')
+            confirmation = body.get('confirm_session_id')
+        except (ValueError, AttributeError, TypeError):
+            raise HTTPException(400, 'Invalid deletion request')
+        if confirmation != session_id:
+            raise HTTPException(400, 'Type the complete session ID to confirm deletion')
+        if not isinstance(password, str) or not (1 <= len(password) <= 256):
+            raise HTTPException(400, 'Researcher password is required')
+        failures = _recent_failures(_ip(request))
+        if len(failures) >= LOGIN_MAX_ATTEMPTS:
+            raise HTTPException(429, 'Too many password attempts. Try again later.')
+        try:
+            verified = _password.verify(_conf('ADMIN_PASSWORD_HASH'), password)
+        except (InvalidHashError, VerifyMismatchError):
+            verified = False
+        finally:
+            password = None
+        if not verified:
+            failures.append(time.monotonic())
+            raise HTTPException(403, 'Incorrect researcher password')
+        failures.clear()
+        client, storage_bucket = get_s3(), get_bucket()
+        prefix = f'sessions/{session_id}/'
+        key = f'deleted_sessions/{session_id}.json'
+        stored = list(objects(client, storage_bucket, prefix))
+        if not stored:
+            raise HTTPException(404, 'No stored data for that session')
+        # Keep a tiny marker, not a copy of deleted participant data.
+        marker = {'session_id':session_id,
+                  'deleted_at_utc':datetime.now(timezone.utc).isoformat()}
+        client.put_object(Bucket=storage_bucket, Key=key,
+                          Body=json.dumps(marker).encode('utf-8'),
+                          ContentType='application/json', Metadata={'purpose':'prevent-reupload'})
+        deleted = 0
+        # Re-list after deletion to catch in-flight uploads. This is not a
+        # transaction: unexpected storage errors leave a tombstone in place and
+        # remaining objects visible for a later manual retry.
+        for attempt in range(3):
+            remaining = list(objects(client, storage_bucket, prefix))
+            if not remaining:
+                break
+            for start in range(0, len(remaining), 1000):
+                keys = [v['Key'] for v in remaining[start:start+1000]]
+                try:
+                    result = client.delete_objects(Bucket=storage_bucket,
+                        Delete={'Objects':[{'Key':k} for k in keys], 'Quiet':False})
+                except Exception as exc:
+                    raise HTTPException(502, 'Storage deletion failed; session is protected from further uploads, but some data may remain') from exc
+                if result.get('Errors'):
+                    raise HTTPException(502, 'Some session objects could not be deleted. The record remains protected from reupload.')
+                deleted += len(keys)
+        if next(objects(client, storage_bucket, prefix), None) is not None:
+            raise HTTPException(502, 'Some objects remain. Session is blocked from new uploads; retry deletion.')
+        return JSONResponse({'status':'deleted', 'session_id':session_id,
+                             'deleted_objects':deleted}, headers={'Cache-Control':'no-store'})
 
     # A researcher can download an individual session after signing in.
     @app.get('/admin/api/sessions/{session_id}/download', include_in_schema=False)

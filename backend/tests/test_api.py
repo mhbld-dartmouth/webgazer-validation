@@ -17,7 +17,7 @@ os.environ.update({
 import main
 
 class MemoryBucket:
- def __init__(self):self.data={}
+ def __init__(self):self.data={};self.transcoding=False
  def head_object(self,Bucket,Key):
   if Key not in self.data:raise ClientError({'Error':{'Code':'404'},'ResponseMetadata':{'HTTPStatusCode':404}},'HeadObject')
   return {'Metadata':self.data[Key]['Metadata'],'Size':len(self.data[Key]['Body'])}
@@ -26,10 +26,24 @@ class MemoryBucket:
   result={'Contents':[{'Key':k,'Size':len(self.data[k]['Body']),'LastModified':datetime.now(timezone.utc)} for k in portion]}
   if offset+MaxKeys<len(keys):result['NextContinuationToken']=str(offset+MaxKeys)
   return result
- def put_object(self,Bucket,Key,Body,ContentType,ContentEncoding,Metadata):self.data[Key]={'Body':Body,'Metadata':Metadata}
+ def put_object(self,Bucket,Key,Body,ContentType,Metadata,ContentEncoding=None):
+  self.data[Key]={'Body':Body,'Metadata':Metadata, 'ContentType':ContentType, 'ContentEncoding':ContentEncoding}
+ def delete_object(self,Bucket,Key):self.data.pop(Key,None)
+ def delete_objects(self,Bucket,Delete):
+  deleted=[]
+  for entry in Delete['Objects']:
+   self.data.pop(entry['Key'],None)
+   deleted.append({'Key':entry['Key']})
+  return {'Deleted':deleted, 'Errors':[]}
  def get_object(self,Bucket,Key):
   if Key not in self.data:raise KeyError(Key)
-  return {'Body':io.BytesIO(self.data[Key]['Body'])}
+  val=self.data[Key]
+  body=val['Body']
+  # Simulate transparent decompression by Google Cloud Storage for legacy
+  # objects labelled with Content-Encoding:gzip.
+  if val.get('ContentEncoding')=='gzip' and self.transcoding:
+   body=gzip.decompress(body)
+  return {'Body':io.BytesIO(body)}
 store=MemoryBucket()
 main.s3=lambda:store
 client=TestClient(main.app,base_url='https://study.example.org')
@@ -212,3 +226,152 @@ def test_independent_camera_and_gaze_sampling_exports_multiple_validations():
         assert len(csv_rows('validation_points'))==2 # no duplicates from final checkpoint
         assert len(csv_rows('validation_runs'))==2
     print('Independent camera and gaze timestamps, multi-run and UTC export PASS')
+
+
+def test_gcs_transcoding_legacy_receipt_and_export():
+    sid, head = open_session()
+    client.post('/api/sessions', headers=head, json={})
+    for seq, kind in enumerate(('validation_complete', 'finish')):
+        data = {'validation_summary':{'accPx':44, 'precPx':25,
+                'screenQuality':{'pass':True}, 'results':[{'accPx':42}]},
+                'gaze_events':[{'x':100,'y':150,'t':33.33}]}
+        r=client.post(f'/api/sessions/{sid}/batches/{seq}', headers=head,
+           json={'kind':kind, 'created_at':'2026-11-13T00:00:00Z',
+                 'build':'test', 'data':data})
+        assert r.status_code==200,r.text
+    receipt=client.post(f'/api/sessions/{sid}/complete', headers=head,
+                        json={'last_sequence':1})
+    assert receipt.status_code==200
+    # All records originally stored as gzip + Content-Encoding, as on GCS before fix.
+    for key, val in store.data.items():
+        if key.startswith(f'sessions/{sid}/'):
+            val['ContentEncoding']='gzip'
+    store.transcoding=True
+    try:
+        login=client.post('/admin/api/login',json={'password':TEST_ADMIN_PASSWORD}).json()['token']
+        headers={'Authorization':'Bearer '+login}
+        data=client.get('/admin/api/sessions',headers=headers)
+        assert data.status_code==200,data.text
+        record=next(v for v in data.json()['sessions'] if v['session_id']==sid)
+        assert record['status']=='submitted' and record['metrics']['accPx']==44
+        assert record['submitted_at_utc']==receipt.json()['submitted_at_utc']
+        export=client.get(f'/admin/api/sessions/{sid}/download',headers=headers)
+        assert export.status_code==200,export.text
+        with zipfile.ZipFile(io.BytesIO(export.content)) as z:
+            name=f'sessions/{sid}/raw/completed.json.gz'
+            assert json.loads(gzip.decompress(z.read(name)))['submitted_at_utc']==receipt.json()['submitted_at_utc']
+        all_export=client.get('/admin/api/export-all',headers=headers)
+        assert all_export.status_code==200,all_export.text
+    finally:
+        store.transcoding=False
+
+def test_stale_upload_cleanup_never_deletes_completed_or_receipt_errors():
+    from retention import cleanup_stale
+    from datetime import timedelta
+    sid, head=open_session()
+    client.post('/api/sessions',headers=head,json={})
+    stale_time=datetime.now(timezone.utc)-timedelta(hours=120)
+    # A second, corrupt completion receipt must still prevent deletion.
+    protected, protected_head=open_session()
+    client.post('/api/sessions',headers=protected_head,json={})
+    key=f'sessions/{protected}/completed.json.gz'
+    store.data[key]={'Body':b'bad', 'Metadata':{'kind':'complete'}}
+    # One old, genuinely completed submission must be preserved too.
+    completed, completed_head=open_session()
+    client.post('/api/sessions',headers=completed_head,json={})
+    finish={'kind':'finish','created_at':'now','build':'test','data':{}}
+    client.post(f'/api/sessions/{completed}/batches/0',headers=completed_head,json=finish)
+    client.post(f'/api/sessions/{completed}/complete',headers=completed_head,json={'last_sequence':0})
+    # The fake storage must expose correct timestamps for a deterministic cleanup.
+    old_keys=set()
+    for keep in (sid, protected, completed):
+        old_keys.update(k for k in store.data if k.startswith(f'sessions/{keep}/'))
+    orig=store.list_objects_v2
+    def aged(**kwargs):
+        result=orig(**kwargs)
+        for v in result['Contents']:
+            if v['Key'] in old_keys:
+                v['LastModified']=stale_time
+        return result
+    store.list_objects_v2=aged
+    try:
+        login=client.post('/admin/api/login',json={'password':TEST_ADMIN_PASSWORD}).json()['token']
+        h={'Authorization':'Bearer '+login}
+        listing=client.get('/admin/api/sessions',headers=h).json()
+        assert all(v['session_id']!=sid for v in listing['sessions'])
+        assert any(w['session_id']==protected for w in listing['needs_review'])
+        preview=client.post('/admin/api/cleanup-stale?dry_run=true',headers=h)
+        assert preview.status_code==200,preview.text
+        assert any(k.startswith(f'sessions/{sid}/') for k in store.data)
+        result=client.post('/admin/api/cleanup-stale?dry_run=false',headers=h)
+        assert result.status_code==200,result.text
+        assert result.json()['deleted_sessions']>=1
+        assert not any(k.startswith(f'sessions/{sid}/') for k in store.data)
+        assert any(k.startswith(f'sessions/{protected}/') for k in store.data)
+        assert any(k.startswith(f'sessions/{completed}/') for k in store.data)
+        export=client.get('/admin/api/export-all',headers=h)
+        assert export.status_code==200,export.text
+        with zipfile.ZipFile(io.BytesIO(export.content)) as z:
+            assert 'export_errors.csv' in z.namelist()
+            assert protected in z.read('export_errors.csv').decode('utf-8-sig')
+            assert f'sessions/{completed}/manifest.json' in z.namelist()
+    finally:
+        store.list_objects_v2=orig
+
+
+def test_password_confirmed_deletion_submitted_and_replay_protection():
+    sid, h = open_session()
+    assert client.post('/api/sessions', headers=h, json={}).status_code == 200
+    finish={'kind':'finish','build':'test', 'created_at':'2026-11-13T00:00:00Z',
+            'data':{'search_trials':[{'trial':i+1} for i in range(50)]}}
+    assert client.post(f'/api/sessions/{sid}/batches/0',headers=h,json=finish).status_code==200
+    assert client.post(f'/api/sessions/{sid}/complete',headers=h,json={'last_sequence':0}).status_code==200
+    token=client.post('/admin/api/login',json={'password':TEST_ADMIN_PASSWORD}).json()['token']
+    ah={'Authorization':'Bearer '+token}
+    endpoint=f'/admin/api/sessions/{sid}'
+    assert client.request('DELETE', endpoint,json={'password':TEST_ADMIN_PASSWORD,'confirm_session_id':sid}).status_code==401
+    assert client.request('DELETE', endpoint,headers=ah,json={'password':TEST_ADMIN_PASSWORD,'confirm_session_id':'another'}).status_code==400
+    assert client.request('DELETE', endpoint,headers=ah,json={'password':'wrong','confirm_session_id':sid}).status_code==403
+    assert client.get('/admin/api/stored-sessions').status_code==401
+    assert any(x['session_id']==sid for x in client.get('/admin/api/stored-sessions',headers=ah).json()['sessions'])
+    response=client.request('DELETE', endpoint,headers=ah,json={'password':TEST_ADMIN_PASSWORD,'confirm_session_id':sid})
+    assert response.status_code==200,response.text
+    assert response.json()['deleted_objects']>=3
+    assert f'deleted_sessions/{sid}.json' in store.data
+    assert not any(k.startswith(f'sessions/{sid}/') for k in store.data)
+    assert all(x['session_id']!=sid for x in client.get('/admin/api/sessions',headers=ah).json()['sessions'])
+    assert all(x['session_id']!=sid for x in client.get('/admin/api/stored-sessions',headers=ah).json()['sessions'])
+    assert client.get(f'/admin/api/sessions/{sid}/download',headers=ah).status_code==404
+    assert client.post('/api/sessions',headers=h,json={}).status_code==410
+    assert client.post(f'/api/sessions/{sid}/batches/0',headers=h,json=finish).status_code==410
+    assert client.post(f'/api/sessions/{sid}/complete',headers=h,json={'last_sequence':0}).status_code==410
+
+
+def test_researcher_can_delete_unfinished_and_bad_receipt():
+    token=client.post('/admin/api/login',json={'password':TEST_ADMIN_PASSWORD}).json()['token']
+    ah={'Authorization':'Bearer '+token}
+    for receipt_kind in ['unfinished','bad_receipt']:
+        sid, h=open_session()
+        assert client.post('/api/sessions',headers=h,json={}).status_code==200
+        if receipt_kind=='bad_receipt':
+            store.data[f'sessions/{sid}/completed.json.gz']={'Body':b'broken', 'Metadata':{'kind':'complete'}}
+        inventory=client.get('/admin/api/stored-sessions',headers=ah)
+        assert inventory.status_code==200,inventory.text
+        record=next(x for x in inventory.json()['sessions'] if x['session_id']==sid)
+        assert record['status']==('receipt_needs_review' if receipt_kind=='bad_receipt' else 'unfinished')
+        reply=client.request('DELETE', f'/admin/api/sessions/{sid}',headers=ah,
+            json={'password':TEST_ADMIN_PASSWORD,'confirm_session_id':sid})
+        assert reply.status_code==200,reply.text
+        assert not any(k.startswith(f'sessions/{sid}/') for k in store.data)
+
+
+def test_deletion_rejects_bad_session_path_and_origin():
+    token=client.post('/admin/api/login',json={'password':TEST_ADMIN_PASSWORD}).json()['token']
+    ah={'Authorization':'Bearer '+token}
+    assert client.request('DELETE', '/admin/api/sessions/../../api',headers=ah,json={}).status_code in (400,404,405)
+    sid,h=open_session()
+    client.post('/api/sessions',headers=h,json={})
+    bad_origin=client.request('DELETE', f'/admin/api/sessions/{sid}',headers={**ah,'Origin':'https://other.org'},
+            json={'password':TEST_ADMIN_PASSWORD,'confirm_session_id':sid})
+    assert bad_origin.status_code==403
+    assert any(k.startswith(f'sessions/{sid}/') for k in store.data)

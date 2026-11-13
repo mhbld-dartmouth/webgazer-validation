@@ -9,6 +9,7 @@ import gzip
 import json
 from pathlib import Path
 from main import bucket, s3
+from storage_codec import decode_json_bytes
 
 p=argparse.ArgumentParser()
 p.add_argument('--out',default='research_export',help='Approved protected output folder')
@@ -30,7 +31,7 @@ while True:
         if len(parts)!=4:continue
         sid=parts[1]
         binary=s3().get_object(Bucket=bucket(),Key=key)['Body'].read()
-        payload=json.loads(gzip.decompress(binary))
+        payload=decode_json_bytes(binary)
         by_session.setdefault(sid,[]).append(payload)
     continuation=r.get('NextContinuationToken')
     if not continuation:break
