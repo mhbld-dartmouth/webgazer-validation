@@ -166,7 +166,16 @@ async def security_headers(request: Request, call_next):
     response.headers['Permissions-Policy'] = 'camera=(self), microphone=()'
     if request.url.path in ('/', '/index.html') or request.url.path.startswith(('/admin', '/api/', '/models/')) or request.url.path.lstrip('/') in STATIC_ASSETS:
         response.headers.update(no_store_headers())
-        response.headers['Content-Security-Policy'] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'"
+        csp = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; "
+        if request.url.path in ('/', '/index.html'):
+            # WebGazer requires dynamic Function() execution.
+            # Permit this only on the participant page.
+            csp += "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+            csp += "img-src 'self' data: blob:; media-src 'self' blob:; "
+        else:
+            csp += "script-src 'self' 'unsafe-inline'; "
+        csp += "style-src 'self' 'unsafe-inline'; connect-src 'self'"
+        response.headers['Content-Security-Policy'] = csp
     return response
 
 @app.get('/', include_in_schema=False)
