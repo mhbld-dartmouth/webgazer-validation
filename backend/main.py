@@ -174,7 +174,11 @@ async def security_headers(request: Request, call_next):
             csp += "img-src 'self' data: blob:; media-src 'self' blob:; "
         else:
             csp += "script-src 'self' 'unsafe-inline'; "
-        csp += "style-src 'self' 'unsafe-inline'; connect-src 'self'"
+        csp += "style-src 'self' 'unsafe-inline'; "
+        if request.url.path in ('/', '/index.html'):
+            csp += "connect-src 'self' https://tfhub.dev https://storage.googleapis.com"
+        else:
+            csp += "connect-src 'self'"
         response.headers['Content-Security-Policy'] = csp
     return response
 
