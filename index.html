@@ -735,6 +735,7 @@ let searchTrials=[], practiceTrials=[], practiceHasRun=false, practiceUploadCurs
 let trackerOn=false, trackerHooked=false, modelReady=false, modelError=null;
 let camStream=null, camError=null, camFailed=false;
 let lastFaceMs=-1e9, faceInfo=null, liveDistCm=null, lensDistCm=null, faceLuma=null, frameLuma=null, lastLumaMs=0;
+let faceTrackerCalls=0, faceTrackerResponses=0, faceTrackerUsableFrames=0, faceTrackerErrors=0, faceTrackerLastError='';
 let eyeHist=[];                                  // recent eye gaps (fraction of image width)
 let faceAnchor=null, faceDriftReason=null; // raw face geometry at the moment calibration starts
 let cameraFrameIntervals=[],cameraFrameMonitorStarted=false,cameraSamplingActive=false,cameraObservedFrameCount=0;
@@ -776,7 +777,11 @@ function onGaze(d,webgazerElapsedMs){
 }
 function pxToDeg(distPx){ if(!pxPerCm||!distCm)return null; const cm=distPx/pxPerCm; return 2*Math.atan((cm/2)/distCm)*180/Math.PI; }
 function setLiveDot(){ /* Participant gaze visualization is disabled. */ }
-const faceOK=()=>now()-lastFaceMs<500;
+// FaceMesh inference may take >500 ms on normal laptops, even while video is visible.
+// Allow a short gap between detected faces, but never treat video frames alone as detection.
+const FACE_PRESENT_GRACE_MS=2500;
+const FACE_WATCHDOG_LOST_MS=3500;
+const faceOK=()=>lastFaceMs>=0 && now()-lastFaceMs<FACE_PRESENT_GRACE_MS;
 
 /* ============================================================
    SETUP PANELS
@@ -921,7 +926,26 @@ function hookTracker(){
     e=>{ modelError=e||new Error('model failed'); setModelStatus('bad','Face-tracking model failed to download'); showModelError(); console.error('[GazeCheck] face model',e); });
   // every frame WebGazer asks its face tracker for the eyes; we listen in to get the face landmarks
   const orig=tr.getEyePatches;
-  tr.getEyePatches=async function(canvas,w,h){ const r=await orig.call(this,canvas,w,h); onFaceFrame(r?this.positionsArray:null,canvas,w,h); return r; };
+  tr.getEyePatches=async function(canvas,w,h){
+    faceTrackerCalls++;
+    const previous=this.positionsArray;
+    try{
+      const r=await orig.call(this,canvas,w,h);
+      faceTrackerResponses++;
+      // Reuse landmarks only when the current frame really generated new ones.
+      // The tracker may retain its previous positionsArray when no face is found.
+      if(r && this.positionsArray && this.positionsArray!==previous){
+        onFaceFrame(this.positionsArray,canvas,w,h);
+        faceTrackerUsableFrames++;
+      }
+      return r;
+    }catch(e){
+      faceTrackerErrors++;
+      faceTrackerLastError=String(e?.message||e);
+      if(faceTrackerErrors<=2)console.warn('[GazeCheck] face tracking frame failed:',e);
+      throw e; // Preserve WebGazer's own error handling.
+    }
+  };
   // capture the camera stream (to switch it off at the end) and the real error if it fails
   const md=navigator.mediaDevices;
   if(md&&md.getUserMedia&&!md.__gc){ const g=md.getUserMedia.bind(md); md.__gc=true;
@@ -940,17 +964,19 @@ function onFaceFrame(pos,canvas,W,H){
   const mid=(a,b)=>[(a[0]+b[0])/2,(a[1]+b[1])/2];
   const R=mid(pos[33],pos[133]), L=mid(pos[362],pos[263]);          // eye centres from the eye corners
   const ipd=Math.hypot(R[0]-L[0],R[1]-L[1]);
+  const wR=Math.hypot(pos[33][0]-pos[133][0],pos[33][1]-pos[133][1]);
+  const wL=Math.hypot(pos[362][0]-pos[263][0],pos[362][1]-pos[263][1]);
+  const turn=wL>0?wR/wL:1;
   if(ipd>3){
     const gap=ipd/W;                                                   // eye gap as a fraction of image width
-    const wR=Math.hypot(pos[33][0]-pos[133][0],pos[33][1]-pos[133][1]), wL=Math.hypot(pos[362][0]-pos[263][0],pos[362][1]-pos[263][1]);
-    eyeHist.push({t,gap,turn:wL>0?wR/wL:1}); while(eyeHist.length&&t-eyeHist[0].t>3000) eyeHist.shift();
+    eyeHist.push({t,gap,turn}); while(eyeHist.length&&t-eyeHist[0].t>3000) eyeHist.shift();
     const lens=(0.5/Math.tan(CAM_FOV_DEG*Math.PI/360))*IPD_MM/gap/10;  // assumes an average face and a 55° lens
     lensDistCm=(lensDistCm==null)?lens:lensDistCm+0.15*(lens-lensDistCm);
     const cm=distK!=null?distK/gap:lens;                                 // after a tape measurement: scaled to the measured distance
     liveDistCm=(liveDistCm==null)?cm:liveDistCm+0.15*(cm-liveDistCm); }
   const small=Math.min(W,H)*0.66, bx=(W-small)/2, by=(H-small)/2;    // same central box WebGazer draws
   const inBox=p=>p[0]>bx&&p[0]<bx+small&&p[1]>by&&p[1]<by+small;
-  faceInfo={cx:(R[0]+L[0])/2/W, cy:(R[1]+L[1])/2/H, centred:inBox(R)&&inBox(L), t, gap:ipd/W, turn:wL>0?wR/wL:1};
+  faceInfo={cx:(R[0]+L[0])/2/W, cy:(R[1]+L[1])/2/H, centred:inBox(R)&&inBox(L), t, gap:ipd/W, turn};
   if(t-lastLumaMs>500){ lastLumaMs=t;
     const x=Math.min(R[0],L[0])-ipd*0.5, y=Math.min(R[1],L[1])-ipd*0.7;
     faceLuma=meanLuma(canvas,x,y,ipd*2,ipd*1.9); frameLuma=meanLuma(canvas,0,0,W,H); }
@@ -1083,7 +1109,7 @@ $('#reloadBtn').onclick=()=>location.reload();
    2 · CAMERA CHECK
    ============================================================ */
 let distTick=null;
-function setCheck(id,state,title,sub){ const li=$('#'+id); li.className=state||''; 
+function setCheck(id,state,title,sub){ const li=$('#'+id); li.className=state||'';
   li.querySelector('.ic').textContent=state==='ok'?'\u2713':state==='bad'?'!':state==='warn'?'!':String([...li.parentNode.children].indexOf(li)+1);
   li.querySelector('.t').textContent=title; li.querySelector('.s').textContent=sub||''; }
 let distRecent=[], readySince=null;
@@ -1105,7 +1131,12 @@ function runDistance(){
     $('#tapeRedoRow').hidden=!(tapeState!=='pending');
     cont.textContent=tapeNeeded()?'Next: measure the distance':'Continue to calibration';
     if(!face){
-      setCheck('ckFace','bad','Looking for your face\u2026','Sit so your whole face is in the picture.');
+      const hint=faceTrackerCalls===0?'Face tracking has not started. Check that the tracker loaded and the camera is active.'
+        :faceTrackerResponses===0?'The face tracker is still processing its first camera frame. Keep your face in view.'
+        :faceTrackerUsableFrames===0?'The camera is on, but the face model has not returned usable eye landmarks. Face the camera in even front lighting.'
+        :faceTrackerErrors>0?'Face tracking is intermittent. Try even front lighting and avoid moving.'
+        :'Keep your entire face in view and face the camera in even front lighting.';
+      setCheck('ckFace','bad','Looking for your face\u2026',hint);
       setCheck('ckCentre','','Face in the middle',''); setCheck('ckLight','','Light on your face','');
       setCheck('ckDist','','Distance from the screen',''); setCheck('ckStill','','Holding still','');
       distRecent=[]; readySince=null; cont.disabled=true; return;
@@ -1248,7 +1279,7 @@ function updatePauseText(){
 setInterval(()=>{
   const active=trackerOn && recording && (curStage==='cal'||curStage==='val'||curStage==='search') && !aborted && !instructOpen();
   if(!active){ if(paused) endPause(); driftSince=null; return; }
-  const t=now(), lost=t-lastFaceMs>1500;
+  const t=now(), lost=t-lastFaceMs>FACE_WATCHDOG_LOST_MS;
   const drift=(anchorEstCm!=null&&liveDistCm!=null)?liveDistCm-anchorEstCm:0;
   const geometry=relativeFaceDrift();
   if(Math.abs(drift)>DIST_TOL){ if(driftSince==null) driftSince=t; } else driftSince=null;
@@ -2005,7 +2036,7 @@ async function runPractice(){
 function showMainSearchIntro(){
   phase='instructions';
   instruct('Practice finished','Now begin the recorded visual search',
-    '<p>You have completed 10 practice rounds. The next 50 rounds are the actual study task. Allow about 5–12 minutes depending on how quickly you find targets. Keep looking at the centre of each normal-facing E when you click. A clicked target turns teal so you know it was selected. Practice trials are saved separately and excluded from the main analysis.</p>', 
+    '<p>You have completed 10 practice rounds. The next 50 rounds are the actual study task. Allow about 5–12 minutes depending on how quickly you find targets. Keep looking at the centre of each normal-facing E when you click. A clicked target turns teal so you know it was selected. Practice trials are saved separately and excluded from the main analysis.</p>',
     [{label:'Start 50 study trials',primary:true,fs:true,fn:runSearch}]);
 }
 // Run the scored search task only once per session to avoid mixing in repeated practice effects.
