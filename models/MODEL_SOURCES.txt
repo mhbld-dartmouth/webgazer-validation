@@ -1,0 +1,3 @@
+Installed (UTC): 2026-11-13T21:42:39.462039+00:00
+blazeface: https://tfhub.dev/tensorflow/tfjs-model/blazeface/1/default/1?tfjs-format=compressed
+facemesh: https://tfhub.dev/mediapipe/tfjs-model/facemesh/1/default/1?tfjs-format=compressed
