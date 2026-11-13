@@ -1,0 +1,161 @@
+name: Install WebGazer face models locally
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  install-models:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out lab repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Download and validate official model files
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import datetime
+          import hashlib
+          import io
+          import json
+          import pathlib
+          import tarfile
+          import time
+          import urllib.error
+          import urllib.request
+
+          SOURCES = {
+              'blazeface': (
+                  'https://storage.googleapis.com/tfhub-tfjs-modules/tensorflow/tfjs-model/blazeface/1/default/1/',
+                  'https://tfhub.dev/tensorflow/tfjs-model/blazeface/1/default/1?tfjs-format=compressed',
+              ),
+              'facemesh': (
+                  'https://storage.googleapis.com/tfhub-tfjs-modules/mediapipe/tfjs-model/facemesh/1/default/1/',
+                  'https://tfhub.dev/mediapipe/tfjs-model/facemesh/1/default/1?tfjs-format=compressed',
+              ),
+          }
+
+          def fetch(url):
+              error = None
+              for attempt in range(3):
+                  try:
+                      request = urllib.request.Request(
+                          url,
+                          headers={'User-Agent': 'WebGazer-Research-Model-Installer/1.0'},
+                      )
+                      with urllib.request.urlopen(request, timeout=75) as response:
+                          data = response.read(90_000_001)
+                      if len(data) > 90_000_000:
+                          raise ValueError('Model file exceeds 90 MB')
+                      if len(data) < 100:
+                          raise ValueError('Unexpectedly small model file')
+                      return data
+                  except (OSError, ValueError) as exc:
+                      error = exc
+                      if attempt < 2:
+                          time.sleep(attempt + 1)
+              raise RuntimeError(f'Cannot download {url}: {error}')
+
+          def validate_and_save(name, files, source):
+              if 'model.json' not in files:
+                  raise RuntimeError(f'{name}: model.json is missing')
+              model = json.loads(files['model.json'])
+              if not isinstance(model.get('modelTopology'), dict):
+                  raise RuntimeError(f'{name}: model topology is missing')
+              manifest = model.get('weightsManifest')
+              if not isinstance(manifest, list) or not manifest:
+                  raise RuntimeError(f'{name}: weights manifest is missing')
+              weight_paths = []
+              for group in manifest:
+                  weight_paths.extend(group['paths'])
+              if not weight_paths:
+                  raise RuntimeError(f'{name}: no weight shards listed')
+              for path in weight_paths:
+                  p = pathlib.PurePosixPath(path)
+                  if p.is_absolute() or '..' in p.parts or str(p) not in files:
+                      raise RuntimeError(f'{name}: weight shard missing or unsafe: {path}')
+                  if len(files[str(p)]) < 100:
+                      raise RuntimeError(f'{name}: invalid weight shard: {path}')
+              destination = pathlib.Path('models') / name
+              destination.mkdir(parents=True, exist_ok=True)
+              for filename in ['model.json', *weight_paths]:
+                  path = destination / filename
+                  path.parent.mkdir(parents=True, exist_ok=True)
+                  path.write_bytes(files[filename])
+              return [destination / p for p in ['model.json', *weight_paths]], source
+
+          def from_direct(name, base):
+              model_bytes = fetch(base + 'model.json')
+              data = json.loads(model_bytes)
+              files = {'model.json': model_bytes}
+              for group in data['weightsManifest']:
+                  for relative in group['paths']:
+                      safe_path = pathlib.PurePosixPath(relative)
+                      if safe_path.is_absolute() or '..' in safe_path.parts:
+                          raise RuntimeError(f'Unsafe shard path: {relative}')
+                      files[relative] = fetch(base + relative)
+              return validate_and_save(name, files, base)
+
+          def from_archive(name, url):
+              archive_bytes = fetch(url)
+              files = {}
+              with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode='r:gz') as tar:
+                  for item in tar:
+                      if not item.isfile():
+                          continue
+                      path = pathlib.PurePosixPath(item.name)
+                      if path.is_absolute() or '..' in path.parts:
+                          raise RuntimeError(f'Unsafe archive member: {item.name}')
+                      normalized = str(path).removeprefix('./')
+                      if normalized == 'model.json' or normalized.endswith('.bin'):
+                          extracted = tar.extractfile(item)
+                          if extracted is not None:
+                              files[normalized] = extracted.read(90_000_001)
+              return validate_and_save(name, files, url)
+
+          all_paths = []
+          provenance = [f'Installed (UTC): {datetime.datetime.now(datetime.timezone.utc).isoformat()}']
+          for name, (direct_base, archive_url) in SOURCES.items():
+              print(f'Downloading {name} from the official TensorFlow model path')
+              try:
+                  paths, source = from_direct(name, direct_base)
+              except Exception as first_error:
+                  print(f'Direct official files unavailable ({first_error}). Trying official archive.')
+                  paths, source = from_archive(name, archive_url)
+              all_paths.extend(paths)
+              provenance.append(f'{name}: {source}')
+              print(f'{name}: validated {len(paths)} files')
+
+          hashes = []
+          for path in sorted(all_paths):
+              hashes.append(f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.as_posix()}')
+          pathlib.Path('models/MODEL_SHA256SUMS.txt').write_text('\n'.join(hashes) + '\n')
+          pathlib.Path('models/MODEL_SOURCES.txt').write_text('\n'.join(provenance) + '\n')
+          pathlib.Path('models/README.md').write_text(
+              '# WebGazer face detection models\n\n'
+              'The BlazeFace and FaceMesh TensorFlow.js files in this folder are hosted by this study.\n'
+              'They are loaded automatically in participants\' browsers; no setup is needed.\n'
+              'MODEL_SOURCES.txt records the upstream URLs and MODEL_SHA256SUMS.txt records file hashes.\n'
+              'Validate WebGazer tracking accuracy after any model asset change and review upstream licenses.\n'
+          )
+          print('All model files downloaded and validated. Checksums recorded.')
+          PY
+
+      - name: Commit model assets to lab repository
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add models/blazeface models/facemesh models/MODEL_SHA256SUMS.txt models/MODEL_SOURCES.txt models/README.md
+          if git diff --cached --quiet; then
+            echo "Models already installed; nothing to commit."
+          else
+            git commit -m "Host pinned WebGazer face model assets on study server"
+            git push origin HEAD:main
+          fi
