@@ -210,7 +210,7 @@ def _session_export(z, s3, bucket, sid, items, prefix=''):
         if row['field'] == 'validation_summary':
             try:
                 value = json.loads(row['value'])
-                if isinstance(value.get('results'), list):
+                if isinstance(value, dict) and isinstance(value.get('results'), list):
                     points = value['results']
             except (ValueError, TypeError):
                 pass
@@ -230,6 +230,8 @@ def _session_export(z, s3, bucket, sid, items, prefix=''):
         if record['field'] == 'validation_summary':
             try:
                 summary = json.loads(record['value'])
+                if not isinstance(summary, dict):
+                    continue  # Intermediate checkpoints may have validation_summary=null.
                 accuracy, precision = summary.get('accPx'), summary.get('precPx')
                 accuracy_deg, precision_deg = summary.get('accDeg'), summary.get('precDeg')
                 break

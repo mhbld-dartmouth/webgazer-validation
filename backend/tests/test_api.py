@@ -409,3 +409,38 @@ def test_export_recovers_raw_objects_if_processing_fails(monkeypatch):
                 assert sid in summary and 'raw_only_export_error' in summary
                 raw=gzip.decompress(z.read(f'sessions/{sid}/raw/batches/000000.json.gz'))
                 assert json.loads(raw)['kind']=='finish'
+
+
+def test_export_handles_null_validation_checkpoints():
+    """Reproduces production export crash from real submitted-session shape.
+
+    Streaming batches store validation_summary=null until calibration finishes.
+    Export must skip those provisional values and use the last real summary.
+    """
+    sid, head = open_session()
+    assert client.post('/api/sessions', headers=head, json={}).status_code == 200
+    base = {'build':'null-checkpoint-regression', 'created_at':'2026-11-13T17:00:00Z'}
+    first = {**base, 'kind':'periodic_gaze', 'data':{
+        'validation_summary':None,
+        'gaze_events':[{'t':100,'rawX':100,'rawY':200}]}}
+    final = {**base, 'kind':'finish', 'data':{
+        'validation_summary':{'accPx':90.0,'accDeg':2.0,'precPx':42.0,'precDeg':1.0,
+                              'results':[{'accPx':100.0},{'accPx':80.0}]},
+        'search_trials':[{'trial':1,'correct':True}]}}
+    assert client.post(f'/api/sessions/{sid}/batches/0', headers=head, json=first).status_code == 200
+    assert client.post(f'/api/sessions/{sid}/batches/1', headers=head, json=final).status_code == 200
+    assert client.post(f'/api/sessions/{sid}/complete', headers=head, json={'last_sequence':1}).status_code == 200
+    token=client.post('/admin/api/login',json={'password':TEST_ADMIN_PASSWORD}).json()['token']
+    ah={'Authorization':'Bearer '+token}
+    for path in (f'/admin/api/sessions/{sid}/download','/admin/api/export-all'):
+        response=client.get(path,headers=ah)
+        assert response.status_code == 200,response.text
+        with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+            names=z.namelist()
+            assert f'sessions/{sid}/csv/search_trials.csv' in names
+            assert f'sessions/{sid}/csv/other_fields.csv' in names
+            assert f'sessions/{sid}/plots/accuracy_by_point.png' in names
+            assert f'sessions/{sid}/raw/batches/000000.json.gz' in names
+            assert f'sessions/{sid}/raw/batches/000001.json.gz' in names
+            assert f'sessions/{sid}/RAW_EXPORT_WARNING.txt' not in names
+            assert sid in z.read('study_summary.csv').decode('utf-8-sig')
