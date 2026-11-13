@@ -375,3 +375,37 @@ def test_deletion_rejects_bad_session_path_and_origin():
             json={'password':TEST_ADMIN_PASSWORD,'confirm_session_id':sid})
     assert bad_origin.status_code==403
     assert any(k.startswith(f'sessions/{sid}/') for k in store.data)
+
+
+def test_export_recovers_raw_objects_if_processing_fails(monkeypatch):
+    """A transformation exception must not silently create an empty export."""
+    import export_reports
+    sid, head = open_session()
+    assert client.post('/api/sessions', headers=head, json={}).status_code == 200
+    base = {'kind':'finish', 'build':'regression-test', 'created_at':'2026-11-13T00:00:00Z',
+            'data':{'gaze_events':[{'x':5,'y':4,'t':200}], 'search_trials':[{'trial':1}]}}
+    assert client.post(f'/api/sessions/{sid}/batches/0', headers=head, json=base).status_code == 200
+    assert client.post(f'/api/sessions/{sid}/complete',headers=head,json={'last_sequence':0}).status_code == 200
+    token=client.post('/admin/api/login',json={'password':TEST_ADMIN_PASSWORD}).json()['token']
+    ah={'Authorization':'Bearer '+token}
+
+    def fail_processing(*args, **kwargs):
+        raise RuntimeError('simulated transformation failure')
+
+    with monkeypatch.context() as mp:
+        mp.setattr(export_reports, '_session_export', fail_processing)
+        for path in (f'/admin/api/sessions/{sid}/download', '/admin/api/export-all'):
+            response = client.get(path, headers=ah)
+            assert response.status_code == 200, response.text
+            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+                names = z.namelist()
+                assert f'sessions/{sid}/RAW_EXPORT_WARNING.txt' in names
+                assert f'sessions/{sid}/raw/batches/000000.json.gz' in names
+                assert f'sessions/{sid}/raw/completed.json.gz' in names
+                assert 'export_errors.csv' in names
+                report=z.read('export_errors.csv').decode('utf-8-sig')
+                assert sid in report and 'Recovered' in report
+                summary=z.read('study_summary.csv').decode('utf-8-sig')
+                assert sid in summary and 'raw_only_export_error' in summary
+                raw=gzip.decompress(z.read(f'sessions/{sid}/raw/batches/000000.json.gz'))
+                assert json.loads(raw)['kind']=='finish'

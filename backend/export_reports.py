@@ -9,11 +9,14 @@ import gzip
 import io
 import json
 import math
+import logging
 import tempfile
 import zipfile
 from collections import defaultdict
 from datetime import datetime, timezone
 from storage_codec import decode_json_bytes, ensure_gzip_bytes, read_object_json
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -249,6 +252,37 @@ def _session_export(z, s3, bucket, sid, items, prefix=''):
 
 
 
+def _recover_raw_session(z, s3, bucket, sid, items):
+    """Recover readable objects if transformation fails; never call this a complete export.
+
+    This is intentionally read-only. No live study data is modified or deleted.
+    Files are stored as actual gzip archives even if object storage transparently
+    decompressed a legacy object. Failures are logged privately, not added to CSV.
+    """
+    base = f'sessions/{sid}/'
+    recovered = 0
+    failed = 0
+    for item in sorted(items, key=lambda x: x['Key']):
+        key = item['Key']
+        if not key.endswith('.json.gz') or not key.startswith(base):
+            continue
+        try:
+            payload = s3.get_object(Bucket=bucket, Key=key)['Body'].read()
+            z.writestr(base + 'raw/' + key[len(base):], ensure_gzip_bytes(payload))
+            recovered += 1
+        except Exception:
+            failed += 1
+            logger.exception('Raw recovery failed: session=%s object=%s', sid, key)
+    z.writestr(base + 'RAW_EXPORT_WARNING.txt',
+        'The session has a completion receipt, but generating its tabular export failed.\n'
+        'These are recovered raw objects, not a verified complete CSV export.\n'
+        f'Raw objects recovered: {recovered}; retrieval failures: {failed}.\n'
+        'Check Cloud Run logs for the underlying processing exception.\n'
+        'Do not delete the stored session until a complete export is verified.\n')
+    return {'session_id': sid, 'status': 'raw_only_export_error',
+            'raw_objects_recovered': recovered, 'raw_objects_failed': failed}
+
+
 # One session or the whole study can be exported as a ZIP of raw records, CSVs, and plots.
 def build_export(s3, bucket, session_id=None, max_size=350*1024*1024):
     """Export completed, nonpartial sessions only; never export abandoned uploads.
@@ -287,8 +321,8 @@ def build_export(s3, bucket, session_id=None, max_size=350*1024*1024):
             results = []
             for sid, session_items in eligible:
                 try:
-                    # Write each session into a temporary ZIP first, so one damaged
-                    # batch cannot leave a partial session in the final export.
+                    # Stage each complete session independently. One failing session
+                    # must not silently corrupt the ZIP or discard another session.
                     staging = io.BytesIO()
                     with zipfile.ZipFile(staging, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=3) as subzip:
                         result = _session_export(subzip, s3, bucket, sid, session_items)
@@ -297,14 +331,26 @@ def build_export(s3, bucket, session_id=None, max_size=350*1024*1024):
                             z.writestr(name, subzip.read(name))
                     results.append(result)
                 except Exception:
-                    if session_id:
-                        raise
-                    unreadable.append({'session_id': sid, 'issue': 'A study batch could not be exported. Inspect protected storage/logs.'})
+                    # Previously this was silently swallowed in all-sessions
+                    # exports, resulting in a 0-byte study_summary.csv. Keep the
+                    # original exception in private server logs for diagnosis.
+                    logger.exception('Session export processing failed for session=%s', sid)
+                    recovery_stage = io.BytesIO()
+                    with zipfile.ZipFile(recovery_stage, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=3) as recovery_zip:
+                        recovery_result = _recover_raw_session(recovery_zip, s3, bucket, sid, session_items)
+                    with zipfile.ZipFile(io.BytesIO(recovery_stage.getvalue())) as recovery_zip:
+                        for name in recovery_zip.namelist():
+                            z.writestr(name, recovery_zip.read(name))
+                    results.append(recovery_result)
+                    unreadable.append({'session_id': sid,
+                        'issue': f'Processed CSV/plot export failed. Recovered {recovery_result["raw_objects_recovered"]} raw records; '
+                                 f'{recovery_result["raw_objects_failed"]} raw retrieval failures. Inspect protected server logs.'})
             z.writestr('study_summary.csv', _csv_content(results))
             z.writestr('README_EXPORT.txt',
                 'WebGazer validation study export: ONLY confirmed complete submissions.\n'
                 'Abandoned, in-progress, and partial sessions are excluded.\n'
-                'READ export_errors.csv if present: those sessions were NOT exported.\n'
+                'READ export_errors.csv if present: those sessions were NOT fully processed.\n'
+                'For processing errors, sessions/<id>/raw/ contains recovered raw data; review RAW_EXPORT_WARNING.txt.\n'
                 'raw/ contains actual gzip-compressed JSON even for legacy Google Cloud files.\n'
                 'csv/ contains flattened study tables; plots/ contains descriptive figures.\n'
                 'sampling_summary.csv contains independently observed camera FPS and valid gaze Hz.\n'
